@@ -1,0 +1,23 @@
+0) This is a 32 bit only implementation.  If a 16 bit application tries to load
+   the image exits (does not return carry set).  Workaround for buggy BCC.
+1) Int 31 is an interrupt gate, not trap gate.  This causes poor interrupt
+   latency, but is needed to handle reentrancy.
+2) The PICs are not virtualized (so IRQ base cannot be changed).
+3) Int 24 interrupt not supported.
+4) The DPMI server requires some free DOS memory to execute in addition to
+   the memory requested at startup time.
+5) Request 8 does not check for low 12 bits set on limits > 1Mb
+6) Request 9 does not force code selectors to be readable+non-conforming
+7) Request 0x100 returns only a single descriptor (fix via re-compile)
+8) Exceptions 0x10 to 0x1f are not supported, setting them silently fails. 
+   Default exceptions handler cannot be chained to.
+9) Unhandled exceptions 0-7 are treated as fatal and not reflected as interrupts
+11) Implementation always pretends V86 mode, even when using normal real mode
+12) Real mode callbacks are shared with HW interrupt hooks and pooled across
+    all nested clients, so 16 many not be available.
+13) Raw mode save state may not be implemented when it is needed.
+14) Raw mode switching must be in matched pairs.
+16) Page locking is binary (no lock count maintained).
+17) Physical address mapping may conflict with memory blocks (not checked).
+18) The big bit *MUST* be set on the operating stack's SS selector.
+19) Values returned by memory information underestimate lockable memory.
