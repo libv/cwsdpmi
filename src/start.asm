@@ -1,4 +1,4 @@
-; Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
+; Copyright (C) 1995-1999 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ;
 ; This file is distributed under the terms listed in the document
 ; "copying.cws", available from CW Sandmann at the address above.
@@ -41,6 +41,12 @@ extrn	_main:near
 	.8086
 
 start	proc near
+	call	lsetup
+	jmp	_main		; Never return, so this is OK
+	endp
+
+	PUBLIC	lsetup
+lsetup	proc near
 	mov	bp, ds:[2]	; Highest memory segment
 	mov	dx, DGROUP
 	mov	ds, dx
@@ -64,8 +70,10 @@ start	proc near
 
 mem_ok:	mov	bx, di
 	shl	di, cl		; Convert back to bytes from paragraphs
+	pop	ax		; Return address
 	mov	ss, dx		; Set the program stack
 	mov	sp, di
+	push	ax		; Return address
 
 	add	bx, dx		; Segment value for end of our new DGROUP
 	mov	word ptr __brklvl+2, bx
@@ -90,8 +98,8 @@ mem_ok:	mov	bx, di
 	mov	word ptr __osmajor, ax
 
 	mov	ds:[bss_end],8000h	; For malloc
-
-	call	_main		; Never return, so this is OK
+	mov	es, __psp
+	ret
 	endp
 	
 	PUBLIC	__exit,_exit	; Always error exit here
@@ -102,19 +110,17 @@ _exit:	mov	ax,4C01h
 
 	PUBLIC	_unlink
 _unlink	proc	near
-	push	bp
-	mov	bp,sp
 	mov	ah,41h		; Delete file
 	jmp	short comn1
 	endp
 
 	PUBLIC	__creat
 __creat	proc	near
-	push	bp
-	mov	bp,sp
 	xor	cx,cx		; No attributes (ignore bp+6)
 	mov	ah,3Ch		; Create new (or zero length existing) file
-comn1:	mov	dx,[bp+4]	; Name of file
+comn1:	push	bp
+	mov	bp,sp
+	mov	dx,[bp+4]	; Name of file
 	int	21h
 	jnc	short do_ret
 	mov	ah,-1		; AX thus negative, shorter, AL has err code
@@ -327,9 +333,35 @@ rsh:	shrd	ax,dx,cl
 	ret
 
 asub	N_LXURSH@
-	xor	bx,bx
-	jmp	short rsh
+;	xor	bx,bx
+;	jmp	short rsh
+	push	dx
+	push	ax
+	pop	edx
+	shr	edx,cl
+	push	edx
+	pop	ax
+	pop	dx
+	ret
 
+IFDEF TC2FIXUP
+asub	SCOPY@
+	pop	eax
+	push	ax
+	jmp	short N_SCOPY@
+asub	LXMUL@
+	call	N_LXMUL@
+	retf
+asub	LXLSH@
+	call	N_LXLSH@
+	retf
+asub	LXRSH@
+	call	N_LXRSH@
+	retf
+asub	LXURSH@
+	call	N_LXURSH@
+	retf
+ENDIF
 	end_code16
 
 _STACK	segment stack 'STACK'

@@ -1,4 +1,4 @@
-; Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+; Copyright (C) 1995-1999 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ; Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 ;
 ; This file is distributed under the terms listed in the document
@@ -11,6 +11,7 @@
 ; warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 ; Modified for VCPI Implement by Y.Shibata Aug 5th 1991
+; Modified for PC98 A20 line control by kaho Aug 5 1998
 
 	title	switch between real and protected mode
 	include segdefs.inc
@@ -63,6 +64,8 @@ _o_tss	label	tss_s	; for convenience functions
 _f_tss	label	tss_s	; for page handling
 	db	type tss_s dup (?)
 
+	public	_features
+_features	dd	?		; CPUID features
 	public	_was_exception
 _was_exception	db	?		; exceptions set this to 1
 
@@ -111,7 +114,6 @@ _go32_1:
 
 	cli
 
-;	call	set_a20
 	cmp	_vcpi_installed,0
 	je	short real_to_protect		;Not VCPI Mode
 	mov	esi,_abs_client
@@ -121,6 +123,7 @@ _go32_1:
 ;	jmp	short end_loop0			;Never Come here!! Safety Loop
 
 real_to_protect:
+	call	_set_a20
 	or	_gdt[g_rdata].lim1,40h		;Set the big bit (non-vcpi only)
 	lgdt	fword ptr _gdt_phys
 	lidt	fword ptr _idt_phys
@@ -139,7 +142,7 @@ _protect_entry	label	near
 
 go_protect_far_jump:
 	cli
-	mov	ax,g_rdata
+	mov     ax,g_rdata
 	mov	ds,ax
 	mov	es,ax
 	mov	fs,ax
@@ -161,6 +164,13 @@ go_protect_far_jump:
 	mov	dr6,eax
 	mov	eax,_dr7
 	mov	dr7,eax
+
+	test	byte ptr _features,10h		;Page Size Extensions?
+	jz	short nopse
+	db	0fh,20h,0e0h			;mov eax,cr4
+	or	al,10h				;Enable 4Mb pages
+	db	0fh,22h,0e0h			;mov cr4,eax
+nopse:
 
 	cmp	_vcpi_installed,0
 	jne	short no_tss_load		;Now Paging Mode in VCPI
@@ -326,9 +336,13 @@ _reset_a20	proc	near
 reset_a20_nop:
 	ret
 
+reset_a20_pc98:
+	mov	al,3
+	out	0f6h,al		; disable the A20 line
+	ret
 reset_a20_local:
-	cmp	_mtype,0	; PC98 raw mode (640K only)
-	jne	short reset_a20_nop
+	cmp	_mtype,0	; PC98 raw mode
+	jne	short reset_a20_pc98
 	in	al,092h		; 092h PS/2 & clone system control port "A"
 	and	al,not 2	; this resets the A20 bit in register al
 	jmp	short $+2	; forget the instruction fetch
@@ -340,15 +354,21 @@ _reset_a20	endp
 _set_a20 proc	near
 	cmp	_vcpi_installed,0
 	jne	short set_a20_nop
+	call	check_a20	; If already enabled skip A20 enable
+	jz	short set_a20_nop
 	cmp	_use_xms,0
 	je	short set_a20_local
 	call	_xms_local_enable_a20
 set_a20_nop:
 	ret
 
+set_a20_pc98:
+	mov	al,2
+	out	0f6h,al		; enable the A20 line
+	ret	
 set_a20_local:
-	cmp	_mtype,0
-	jne	short set_a20_nop
+	cmp	_mtype,0	; PC98 raw mode
+	jne	short set_a20_pc98
 	pushf
 	cli
 
@@ -379,32 +399,36 @@ a20_done:
 	popf
 	ret
 
-; interrupts disabled, ax, dx, fs, gs destroyed, returns z bit if a20 enabled
+; interrupts disabled, ax, dx, es destroyed, returns z bit if a20 enabled
 check_a20:
+	; Modified by Prashant TR - don't use fs and gs here before switching 
+	; to protmode.  FS/GS left from TC++ 3.0 can kill us when we come here.
 	push	bx
+	push    ds
 	xor	ax,ax		; zero it
-	mov	fs,ax
+	mov     ds,ax
 	dec	ax		; ax = 0ffffh
-	mov	gs,ax
+	mov     es,ax
 	xor	bx,bx
 
-	mov	ax,fs:[bx]	; word from 0:0 (int 0 interrupt)
+	mov     ax,ds:[bx]      ; word from 0:0 (int 0 interrupt)
 	mov	dx,ax		; save it
 	not	ax		; make a different value
-	xchg	ax,gs:[bx+10h]	; modify ffff:10h to known different value
-	xchg	cx,fs:[bx]	; get fs:[0] with a write
+	xchg    ax,es:[bx+10h]  ; modify ffff:10h to known different value
+	xchg    cx,ds:[bx]      ; get ds:[0] with a write
 	cmp	dx,cx		; compare 0:0 with saved; z bit if same = a20
-	mov	gs:[bx+10h],ax	; restore
-	mov	fs:[bx],dx
+	mov     es:[bx+10h],ax  ; restore
+	mov     ds:[bx],dx
 
+	pop     ds
 	pop	bx
 	ret
 
 waitkb:
 	xor	cx,cx		; zero it
 waitkb1:
-        jmp	short $+2
-        jcxz	short $+2
+	jmp	short $+2
+	jcxz	short $+2
 	in	al,64h
 	test	al,2
 	loopnz	waitkb1
@@ -472,6 +496,7 @@ _cputype:
 	inc	ax		; call with eax = 1
 	cpuid			; edx=features; ah&0f = family; al=model/step
 	mov	al,ah
+	mov	_features,edx
 cpu_pentium:
 	and	ax,0fh
 	ret	

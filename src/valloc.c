@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
+/* Copyright (C) 1995-1999 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -11,6 +11,7 @@
 ** warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
 /* Modified for VCPI Implement by Y.Shibata Aug 5th 1991 */
+/* Large physical mem size detection by Prashant TR. (prashant_tr@yahoo.com) */
 
 #include <stdio.h>
 #include <string.h>
@@ -35,11 +36,10 @@
 static word8 far *map;		/* Expanded/Extended paged by valloc() */
 extern word8 far *dmap;		/* Paging memory allocated here too */
 
-static word16 mem_avail;
-static word16 mem_used;		/* Pages, max 128Mb set above */
+static va_pn mem_avail, mem_used;
 
-static unsigned pn_lo_first, pn_lo_last, pn_hi_first, pn_hi_last;
-static unsigned pn_lo_next, pn_hi_next;
+static unsigned pn_lo_first, pn_lo_last, pn_lo_next;
+static va_pn pn_hi_first, pn_hi_last, pn_hi_next;
 static char valloc_initted = 0;
 static char use_vcpi = 0;
 
@@ -61,8 +61,8 @@ static void xms_alloc_init(void)
   if((emb_size = xms_query_extended_memory()) != 0) {
     emb_handle = xms_emb_allocate(emb_size);
     linear_base = xms_lock_emb(emb_handle);
-    pn_hi_first = (word16)((linear_base + 4095)/4096);
-    pn_hi_last = (word16)((linear_base + (emb_size << 10))/4096 - 1);
+    pn_hi_first = (va_pn)((linear_base + 4095)/4096);
+    pn_hi_last = (va_pn)((linear_base + (emb_size << 10))/4096 - 1);
   } else {
     pn_hi_first = 1;
     pn_hi_last = 0;
@@ -178,18 +178,15 @@ mem_exit:
 
 void valloc_init(word16 ies)
 {
-  unsigned i;
-
   if (valloc_initted)
     return;
 
   if (vcpi_installed) {
     pn_hi_first = 0;
     pn_hi_last  = vcpi_maxpage();
-    i = vcpi_capacity();
-    if (i) {
+    if (vcpi_capacity()) {
       use_vcpi = 1;
-      SHOW_MEM_INFO("VCPI memory: %ld Kb", (i * 4L));
+      SHOW_MEM_INFO("VCPI memory: %ld Kb", (vcpi_capacity() * 4L));
     } else if(use_xms) {
       use_vcpi = 0;	/* Just in case multiple pass with all allocated */
       xms_alloc_init();	/* Use XMS memory with VCPI mode switch */
@@ -201,33 +198,43 @@ void valloc_init(word16 ies)
       xms_free();
       _exit(1);
     }
-  } else if (mtype == PC98) { /* RAW memory not supported, 640K only */
+  } else if (mtype == PC98) {
     pn_hi_first = 256;
-    pn_hi_last = 255;	/* Or set via memory size, how? */
+    /* modified for RAW memory support by kaho Aug 5 1998
+     * e-mail address is mxk02052@nifty.ne.jp or kaho@elam.kais.kyoto-u.ac.jp */
+    /* get 1-16MB region memory size */
+    pn_hi_last = 255 + (*(unsigned char far *)0x401L)<<5;
+    /* get above 16MB region memory size */
+    if(pn_hi_last == 4095)
+      pn_hi_last += (*(unsigned short far *)0x594L)<<8;
   } else {
     /* int 15/vdisk memory allocation */
     /* Bug here - we should hook int 0x15 and reduce size, but who cares? */
-    char has_vdisk=1;
     unsigned char far *vdisk;
     _AH = 0x88;		/* get extended memory size */
     geninterrupt(0x15);
     pn_hi_last = _AX / 4 + 255;
 
+    /* Suggested interrupt call by Prashant TR. (prashant_tr@yahoo.com). */
+    _AX=0xE801;
+    _BX=0;
+    _CX=0;
+    _DX=0;
+    geninterrupt(0x15);
+    if ( ! (_FLAGS & 1) && _AX == 0x3c00)
+    	pn_hi_last = ((va_pn)_BX << 4) + 0xfff;		/* 0x3c00 / 4 + 255 */
+
     /* get ivec 19h, seg only */
-    vdisk = (unsigned char far *)(*(long far *)0x64L & 0xFFFF0000L);
-    for (i=0; i<5; i++)
-      if (vdisk[i+18] != "VDISK"[i])
-        has_vdisk = 0;
-    if (has_vdisk) {
-      pn_hi_first = ( (vdisk[46]<<4) | (vdisk[45]>>4) );
-      if (vdisk[44] | (vdisk[45]&0xf))
-        pn_hi_first ++;
-    }
+    vdisk = MK_FP(peek(0,0x19*4+2),0);
+    if(*(word32 far *)(vdisk+18) == 0x53494456UL)  /* 'VDIS' */
+      pn_hi_first = 0xfff & (va_pn)((0xfffL + *(word32 far *)(vdisk+44)) >> 12);
     else
       pn_hi_first = 256;
     SHOW_MEM_INFO("Extended memory: %ld Kb", (((word32)pn_hi_last-pn_hi_first) * 4));
   }
   pn_hi_next = pn_hi_first;
+  if(pn_hi_last > 524279UL)
+    pn_hi_last = 524279UL;
   mem_avail = (use_vcpi)? vcpi_capacity():((long)pn_hi_last-pn_hi_first+1);
   
   if(NPAGEDIR)				/* Specified */
@@ -236,9 +243,11 @@ void valloc_init(word16 ies)
     desired_pt = 4 + (mem_avail>>10);	/* All physical mem plus 1 extra */
     if(desired_pt < 8)
       desired_pt = 8;
+    else if(desired_pt > 36)		/* Arbitrary 128Mb worth max */
+      desired_pt = 36;
   }
 
-  extrapara = (CWSpar.maxdblock + pn_hi_last + 135) >> 7;    /* 7 + 8 + 15*8 */
+  extrapara = (word16)(CWSpar.maxdblock >> 7) + (word16)(pn_hi_last >> 7) + 2;
   mempid = 0;
 
   if(CWSFLAG_EARLY) {
@@ -253,16 +262,18 @@ void valloc_init(word16 ies)
   }
   
   map = MK_FP(valloc_lowmem_page, 0);
-  dmap = MK_FP(valloc_lowmem_page, ((pn_hi_last >> 3) + 1));
-  memsetf(0, 0, extrapara << 4, valloc_lowmem_page);
-  extrapara = 0;
+  memsetf(0, 0, (word16)((pn_hi_last + 7) >> 3), valloc_lowmem_page);
 
+  dmap = MK_FP(valloc_lowmem_page + 1 + (word16)(pn_hi_last >> 7), 0);
+  memsetf(0, 0, (word16)((CWSpar.maxdblock + 7) >> 3), FP_SEG(dmap) );
+
+  extrapara = 0;
   mem_used = 0;
   valloc_initted = 1;
   set_a20();
 }
 
-static void vset(unsigned i, char b)
+static void vset(va_pn i, char b)
 {
   unsigned o;
   word8 m;
@@ -274,7 +285,7 @@ static void vset(unsigned i, char b)
     map[o] &= ~m;
 }
 
-static word8 vtest(unsigned i)
+static word8 vtest(va_pn i)
 {
   unsigned o;
   word8 m;
@@ -285,7 +296,7 @@ static word8 vtest(unsigned i)
 
 static void vcpi_flush(void)		/* only called on exit */
 {
-  word16 pn;
+  va_pn pn;
 
   if (!use_vcpi)
     return;			/*  Not Initaialized Map[]  */
@@ -344,9 +355,9 @@ unsigned valloc_640(void)
   return pn;
 }
 
-unsigned valloc(void)
+va_pn valloc(void)
 {
-  unsigned pn;
+  va_pn pn;
   if (use_vcpi) {
     if ((pn = vcpi_alloc()) != 0) {
       mem_used++;
@@ -367,14 +378,14 @@ unsigned valloc(void)
   /* Note, if VCPI memory runs out before we get mem_avail also end up here */
   if (mem_used < mem_avail && pn_lo_next < 4+pn_lo_last-desired_pt) {
     mem_used++;
-    return (word16)(vcpi_pt[pn_lo_next++] >> 12);
+    return (va_pn)(vcpi_pt[pn_lo_next++] >> 12);
   }
 
   return page_out();
 }
 
 /* If we are able to find the page, return 1 */
-int vfree(word16 pn)
+int vfree(va_pn pn)
 {
   if (vtest(pn)) {
     vset(pn, 0);
@@ -393,12 +404,12 @@ int vfree(word16 pn)
   return 0;
 }
 
-unsigned valloc_max_size(void)
+va_pn valloc_max_size(void)
 {
-  return (unsigned)(mem_avail);
+  return mem_avail;
 }
 
-unsigned valloc_used(void)
+va_pn valloc_used(void)
 {
-  return (unsigned)(mem_used);
+  return mem_used;
 }

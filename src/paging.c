@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
+/* Copyright (C) 1995-1999 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -19,21 +19,17 @@
 #include <string.h>
 
 #include "gotypes.h"
+#include "valloc.h"
 #include "paging.h"
 #include "tss.h"
 #include "idt.h"
 #include "gdt.h"
-#include "valloc.h"
 #include "dalloc.h"
 #include "utils.h"
 #include "vcpi.h"
 #include "exphdlr.h"
 #include "control.h"
 #include "mswitch.h"
-
-#ifdef VERBOSE
-static FILE *dfp = NULL;
-#endif
 
 #define DOS_PAGE 272		/*  1MB+64K / 4KB = 272 Pages  */
 
@@ -91,10 +87,6 @@ void paging_setup(void)
   word32 far *pt;
   int i;
 
-#ifdef VERBOSE
-  dfp = fopen("paging.cws","w");
-#endif
-
   reserved = 0;
   
   while(firstarea) {
@@ -148,10 +140,10 @@ int cant_ask_for(int32 amount)		/* amount is in bytes */
   amount += reserved;
   max = valloc_max_size();
 
-  if (amount >= max)
+  if (amount > max)
     max += dalloc_max_size();		/* Slow, hits disk, avoid if can */
 
-  if (amount < max) {
+  if (amount <= max) {
     reserved = amount;
     return 0;
   }
@@ -174,14 +166,14 @@ static word32 far *getpte(word32 vaddr)
   word32 far *pt;
   int pdi, pti, pn;
 
-  pdi = (word16)(vaddr >> 22) & 0x3ff;
+  pdi = (word16)(vaddr >> 22);
   if (!((word16)pd[pdi] & PT_P)) {  /* put in an empty page table if required */
     pn = valloc_640();
     pt = (word32 far *)((word32)pn << 24);
     if ((word16)pd[pdi] & PT_I) {
       da_pn dblock;
 #ifdef VERBOSE
-      fprintf(dfp," swap_pd"); fflush(dfp);
+      errmsg(" swap_pd"); 
 #endif
       dblock = (da_pn)(pd[pdi] >> 12);
       dread(paging_buffer, dblock);
@@ -191,7 +183,7 @@ static word32 far *getpte(word32 vaddr)
       pd_seg[pdi] = pn;
     } else {
 #ifdef VERBOSE
-      fprintf(dfp, " new_pd"); fflush(dfp);
+      errmsg( " new_pd"); 
 #endif
       pd[pdi] = pn2pte(pn, PT_P | PT_U | PT_W | PT_I | PT_S);
       pd_seg[pdi] = pn;
@@ -209,23 +201,23 @@ int page_in(void)
 {
   word32 far *pte;
   word32 vaddr;
-  int pn;
+  va_pn pn;
   da_pn dblock;
 
 #ifdef VERBOSE
-  fprintf(dfp, "Paging (err: 0x%x) in vaddr %#010lx -", (word16)tss_ptr->tss_error&15, tss_ptr->tss_cr2); fflush(dfp);
+  errmsg( "Paging (err: 0x%x) in vaddr %lx -", (word16)tss_ptr->tss_error&15, tss_ptr->tss_cr2); 
 #endif
   vaddr = tss_ptr->tss_cr2;
   if (!page_is_valid(vaddr)) {
 #ifdef VERBOSE
-    fprintf(dfp, "invalid\n"); fflush(dfp);
+    errmsg( "invalid\n"); 
 #endif
     return 1;
   }
 
   if((word8)tss_ptr->tss_error & 1) {
 #ifdef VERBOSE
-    fprintf(dfp, "protection\n"); fflush(dfp);
+    errmsg( "protection\n"); 
 #endif
     return 1;		/* Protection violation, we don't handle */
   }
@@ -240,7 +232,7 @@ int page_in(void)
 
     if(!((word16)*pte & PT_S)) {
 #ifdef VERBOSE
-      fprintf(dfp, "non-committed\n"); fflush(dfp);
+      errmsg( "non-committed\n"); 
 #endif
       return 1;					/* Non-committed page */
     }
@@ -250,9 +242,9 @@ int page_in(void)
 
     dblock = (da_pn)(*pte >> 12);
     pn = valloc();
-    if(pn == -1) {
+    if(pn == MAX_VPAGE) {
 #ifdef VERBOSE
-     fprintf(dfp, "valloc failed\n"); fflush(dfp);
+     errmsg( "valloc failed\n"); 
 #endif
       utils_tss = old_util_tss;
       return 1;
@@ -263,7 +255,7 @@ int page_in(void)
 
     if ((word16)*pte & PT_I) {
 #ifdef VERBOSE
-      fprintf(dfp, " swap"); fflush(dfp);
+      errmsg( " swap"); 
 #endif
       dread(paging_buffer, dblock);
       dfree(dblock);
@@ -272,14 +264,14 @@ int page_in(void)
       (word16)*pte |= accdirty;		/* restore to previous */
     } else {
 #ifdef VERBOSE
-      fprintf(dfp, " new"); fflush(dfp);
+      errmsg( " new"); 
 #endif
       (word16)*pte |= (PT_I | PT_C);		/* Once accessed save contents */
     }
     utils_tss = old_util_tss;
   }
 #ifdef VERBOSE
-  fprintf(dfp, "\n"); fflush(dfp);
+  errmsg( "\n"); 
 #endif
   return 0;
 }
@@ -295,7 +287,7 @@ unsigned page_out_640(void) /* return >= 0 page which is paged out, 0xffff if no
       dblock = dalloc();
       dwrite(paging_buffer, dblock);
 #ifdef VERBOSE
-      fprintf(dfp, "out_640 %d\n", pti); fflush(dfp);
+      errmsg( "out_640 0x%x\n", pti); 
 #endif
       pd[pti] &= 0xfff & ~(word32)(PT_P); /* no longer present */
       pd[pti] |= (word32)dblock << 12;
@@ -305,28 +297,31 @@ unsigned page_out_640(void) /* return >= 0 page which is paged out, 0xffff if no
   return 0xffff;
 }
 
-unsigned page_out(void) /* return >= 0 page which is paged out, 0xffff if not */
+va_pn page_out(void) /* return >= 0 page which is paged out, 0xffff if not */
 {
   static last_po_pdi = 1;	/* Skip low 4Mb */
   static last_po_pti = 0;
   int start_pdi, start_pti;
   word32 far *pt, v;
-  word16 rv;
+  va_pn rv;
   da_pn dblock;
   start_pdi = last_po_pdi;
-  start_pti = last_po_pti;
+  if( (word8)pd[start_pdi] & PT_P)
+    start_pti = last_po_pti;
+  else
+    start_pti = 0;
   do {
     if ((word16)pd[last_po_pdi] & PT_P) {
       pt = (word32 far *)((word32)(pd_seg[last_po_pdi]) << 24);
       if (((word16)pt[last_po_pti] & (PT_P | PT_S)) == (PT_P | PT_S)) {
-        rv = (word16)(pt[last_po_pti] >> 12);
+        rv = (va_pn)(pt[last_po_pti] >> 12);
         v = ((word32)last_po_pdi << 22) | ((word32)last_po_pti << 12);
         if ((word16)pt[last_po_pti] & (PT_C | PT_D)) {
           int accessed = (word16)pt[last_po_pti] & PT_A; /* Save accessed bit */
           (word16)pt[last_po_pti] |= PT_C;
           memget(g_core*8, v, paging_buffer, 4096);
 #ifdef VERBOSE
-          fprintf(dfp, "dout %08lx", ((word32)last_po_pdi<<22) | ((word32)last_po_pti<<12)); fflush(dfp);
+          errmsg( "dout %lx", ((word32)last_po_pdi<<22) | ((word32)last_po_pti<<12)); 
 #endif
           dblock = dalloc();
           dwrite(paging_buffer, dblock);
@@ -336,13 +331,12 @@ unsigned page_out(void) /* return >= 0 page which is paged out, 0xffff if not */
         } else {
           pt[last_po_pti] = PT_U | PT_W | PT_S;
 #ifdef VERBOSE
-          fprintf(dfp, "dflush %08lx", ((word32)last_po_pdi<<22) | ((word32)last_po_pti<<12)); fflush(dfp);
+          errmsg( "dflush %lx", ((word32)last_po_pdi<<22) | ((word32)last_po_pti<<12)); 
 #endif
         }
         return rv;
       }
-    }
-    else /* imagine we just checked the last entry */
+    } else			/* imagine we just checked the last entry */
       last_po_pti = 1023;	/* Stupid.  If table not there, page them */
 
 bad_choice:
@@ -352,7 +346,7 @@ bad_choice:
         last_po_pdi = 1;	/* Skip low 4Mb */
     }
   } while ((start_pdi != last_po_pdi) || (start_pti != last_po_pti));
-  return 0xffff;
+  return MAX_VPAGE;
 }
 
 /* We map physical addresses 1:1 here.  We also set up pd & pt so that they
@@ -360,22 +354,29 @@ bad_choice:
 void physical_map(word32 physical, word32 size, word32 vaddr)
 {
   word32 address2;
-  int pdi;
+  word16 pdi;
   word32 far *pte;
 
 #ifdef VERBOSE
-  fprintf(dfp, "Map: 0x%lx for 0x%lx bytes to 0x%lx\n",physical,size,vaddr); fflush(dfp);
+  errmsg( "Map: 0x%lx for 0x%lx bytes to 0x%lx\n",physical,size,vaddr); 
 #endif
-  address2 = vaddr + size;
+  address2 = vaddr + size - 1;
   (word16)vaddr &= 0xf000;		/* page align */
   (word16)physical &= 0xf000;		/* page align */
-  free_memory(vaddr,address2-1);	/* Should make all pages not present */
+  free_memory(vaddr,address2);		/* Should make all pages not present */
   /* Minor bug - if using 640K page before overwritting, loose forever here */
-  while(vaddr < address2) {
+  while(vaddr <= address2) {
+    if(vaddr < 0x100000UL)
+      return;				/* Wrap protection */
     pte = getpte(vaddr);
-    pdi = (word16)(vaddr >> 22) & 0x3ff;
+    pdi = (vaddr >> 22);
+#ifndef PFM686
     (word16)pd[pdi] &= ~PT_S;		/* Make sure directory no swap */
     *pte = PT_P | PT_U | PT_W | PT_CD | physical;
+#else
+    /* koji - page directories and do NOT disable cache - direct map memory */
+    *pte = PT_P | PT_U | PT_W | physical;
+#endif
     vaddr += 4096L;
     physical += 4096L;
   }
@@ -383,11 +384,11 @@ void physical_map(word32 physical, word32 size, word32 vaddr)
 
 int lock_memory(word32 vaddr, word32 size, word8 unlock)
 {
-  int pdi;
+  word16 pdi;
   word32 far *pte;
   word32 vaddr2;
 #ifdef VERBOSE
-  fprintf(dfp, "Lock(%d): 0x%lx for 0x%lx bytes\n",unlock,vaddr,size); fflush(dfp);
+  errmsg( "Lock(0x%x): 0x%lx for 0x%lx bytes\n",unlock,vaddr,size); 
 #endif
   size += vaddr;
   (word16)vaddr &= 0xf000;		/* page align */
@@ -395,7 +396,7 @@ int lock_memory(word32 vaddr, word32 size, word8 unlock)
   while(vaddr < size && page_is_valid(vaddr)) {
     pte = getpte(vaddr);
     if (!unlock) {
-      pdi = (word16)(vaddr >> 22) & 0x3ff;
+      pdi = (vaddr >> 22);
       (word16)pd[pdi] &= ~PT_S;		/* Make sure no swap */
     }
     if ((word16)*pte & PT_P) {
@@ -432,7 +433,7 @@ void free_memory(word32 vfirst, word32 vaddr)
   while(vfirst <= vaddr) {
     pte = getpte(vaddr);
     if ((word16)*pte & PT_P) {
-      if (!((word16)*pte & PT_I) || vfree((word16)(*pte>>12)))
+      if (!((word16)*pte & PT_I) || vfree((va_pn)(*pte>>12)))
 	*pte = PT_U | PT_W | PT_S;		/* Back in pool */
       else 
         (word16)*pte &= ~(PT_C | PT_D);	/* So it will be flushed */
@@ -476,7 +477,7 @@ int page_attributes(word8 set, word32 vaddr, word16 count)
   int ic, pte, uval;
   word32 far *pt;
 #ifdef VERBOSE
-  fprintf(dfp, "Attrib(%d): 0x%lx for %d pages\n",set,vaddr,count); fflush(dfp);
+  errmsg( "Attrib(0x%x): 0x%lx for 0x%x pages\n",set,vaddr,count); 
 #endif
   (word16)vaddr &= 0xf000;		/* page align */
   for(ic=0;ic<count;ic++) {
@@ -531,7 +532,7 @@ void move_pt(word32 vorig, word32 vend, word32 vnew)
     pte = getpte(vnew);
     *pte = save;
     if(!((word16)save & PT_S)) {
-      int pdi = (word16)(vnew >> 22) & 0x3ff;
+      word16 pdi = (vnew >> 22);
       (word16)pd[pdi] &= ~PT_S;		/* Make sure no swap */
     }
     vorig += 4096L;

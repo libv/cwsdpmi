@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+/* Copyright (C) 1995-1999 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -19,6 +19,8 @@
 #define	PT_CD	0x010	/* page caching disabled (else enabled) */
 #define PT_A	0x020	/* accessed (else not) */
 #define PT_D	0x040	/* dirty (else clean) */
+#define PT_PS	0x080	/* page size (4Mb page in PDE) */
+#define PT_G	0x100	/* global */
 #define PT_I	0x200	/* Initialized (else contents undefined) USERDEF */
 #define PT_S	0x400	/* Swappable (else not) USERDEF */
 #define	PT_C	0x800	/* Candidate for swapping USERDEF */
@@ -37,7 +39,7 @@ void paging_setup(void);
 word32 ptr2linear(void far *ptr);
 
 int page_in(void);
-unsigned page_out(void);
+va_pn page_out(void);
 unsigned page_out_640(void);
 int page_is_valid(word32 vaddr);
 void physical_map(word32 vaddr, word32 size, word32 where);

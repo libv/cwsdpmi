@@ -23,10 +23,10 @@ typedef	struct {
 	}	far16;
 
 word16	vcpi_present(void);	/*  VCPI Installed Check         */
-word16	vcpi_maxpage(void);	/*  VCPI Max Page Number	 */
-word16	vcpi_capacity(void);	/*  VCPI Unallocated Page Count  */
-word16	vcpi_alloc(void);	/*  VCPI Allocate Page           */
-void	vcpi_free(word16);	/*  VCPI Deallocate Pgae         */
+word32	vcpi_maxpage(void);	/*  VCPI Max Page Number	 */
+word32	vcpi_capacity(void);	/*  VCPI Unallocated Page Count  */
+word32	vcpi_alloc(void);	/*  VCPI Allocate Page           */
+void	vcpi_free(word32);	/*  VCPI Deallocate Pgae         */
 word16	vcpi_get_pic(void);	/*  VCPI Get 8259A INT Vector    */
 void	vcpi_set_pic(word16);	/*  VCPI Set 8259A INT Vector    */
 word16	vcpi_get_secpic(void);	/*  VCPI Get 8259A INT Vector slave */

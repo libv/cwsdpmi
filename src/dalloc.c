@@ -29,7 +29,7 @@ word8 far *dmap;
 static da_pn first_avail;
 static int dfile = -1;
 static da_pn disk_used,disk_max;
-#define max_dblock CWSpar.maxdblock
+#define max_dblock (da_pn)CWSpar.maxdblock
 static word16 paging_pid;
 
 static void dset(da_pn i, int b)

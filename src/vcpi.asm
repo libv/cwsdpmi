@@ -110,7 +110,7 @@ _get_interface	endp
 
 ;  VCPI Maximum page number
 ;
-;word16	vcpi_maxpage(void)
+;word32	vcpi_maxpage(void)
 ;
 ;result	max returnable page number
 
@@ -118,14 +118,12 @@ _get_interface	endp
 _vcpi_maxpage	proc	near
 	mov	ax,VCPI_MAX_PHYMEMADR
 	int	VCPI_REQ
-	shr	edx,12
-	mov	ax,dx
-	ret
+	jmp	short vcpi_alloc_success
 _vcpi_maxpage	endp
 
 ;  VCPI Unallocated Page count
 ;
-;word16	vcpi_capacity(void)
+;word32	vcpi_capacity(void)
 ;
 ;result	Free VCPI Memory(Pages)
 
@@ -133,13 +131,12 @@ _vcpi_maxpage	endp
 _vcpi_capacity	proc	near
 	mov	ax,VCPI_MEM_CAPACITY
 	int	VCPI_REQ
-	mov	ax,dx			;Cut Upper16Bit(CAUTION!!)
-	ret
+	jmp	short vcpi_word32
 _vcpi_capacity	endp
 
 ;  VCPI Memory Allocate
 ;
-;word16	vcpi_alloc(void)
+;word32	vcpi_alloc(void)
 ;
 ;result	Allocate Page No.
 
@@ -149,29 +146,31 @@ _vcpi_alloc	proc	near
 	int	VCPI_REQ
 	test	ah,ah
 	je	short vcpi_alloc_success
-	xor	ax,ax			;Error result = 0
-	ret
+	xor	edx,edx			;Error result = 0
 vcpi_alloc_success:
 	shr	edx,12
-	mov	ax,dx			;Cut Upper16Bit (CAUTION!!)
+vcpi_word32:
+	mov	ax,dx
+	shr	edx,16
 	ret
 _vcpi_alloc	endp
 
 ;  VCPI Memory Deallocate
 ;
-;void	vcpi_free(word16 page_number)
+;void	vcpi_free(word32 page_number)
 
 	public	_vcpi_free
 _vcpi_free	proc	near
 	push	bp
 	mov	bp,sp
+;	movzx	edx,word ptr 4[bp]
+	mov	edx,[bp+4]
+	pop	bp
 
-	movzx	edx,word ptr 4[bp]
 	sal	edx,12			;Address = Page_number * 4KB
 	mov	ax,VCPI_FREE_PAGE
 	int	VCPI_REQ
 
-	pop	bp
 	ret
 _vcpi_free	endp
 
@@ -213,9 +212,9 @@ _vcpi_set_pics	proc	near
 	mov	bp,sp
 	mov	bx,4[bp]		;MASTER PIC Vector
 	mov	cx,6[bp]		;SLAVE PIC Vector
+	pop	bp
 	mov	ax,VCPI_SET_PIC_VECTOR
 	int	VCPI_REQ
-	pop	bp
 	ret
 _vcpi_set_pics	endp
 

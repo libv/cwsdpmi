@@ -1,3 +1,4 @@
+/* Copyright (C) 2000 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479 */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,10 +36,6 @@ void find_info(char *filename)
   }
 
   size = read(f, buffer, sizeof(buffer));
-  if(size == sizeof(buffer)) {
-    printf("Buffer not large enough to hold %s (%d bytes).\n",filename,size);
-    exit(1);
-  }
 
   client_stub_info = NULL;
   for(i=0; i<size && !client_stub_info; i++)
@@ -114,7 +111,7 @@ void str_s2v48(void *addr, char *buf)
 void num_v2s(void *addr, char *buf)
 {
   unsigned v = *(unsigned short *)addr;
-  sprintf(buf, "%d", v);
+  sprintf(buf, "%u", v);
 }
 
 void num_s2v(void *addr, char *buf)
@@ -124,16 +121,16 @@ void num_s2v(void *addr, char *buf)
   *(unsigned short *)addr = r;
 }
 
-void num_vpt2s(void *addr, char *buf)
+void num_vlp2s(void *addr, char *buf)
 {
-  unsigned v = *(unsigned short *)addr;
+  unsigned long v = *(unsigned long *)addr;
   if(v%256)
-    sprintf(buf, "%dKb", v*4);
+    sprintf(buf, "%luKb", v*4);
   else
-    sprintf(buf, "%dMb", v/256);
+    sprintf(buf, "%uMb", (unsigned)(v/256));
 }
 
-void num_s2vpt(void *addr, char *buf)
+void num_s2vlp(void *addr, char *buf)
 {
   unsigned long r = 0;
   char s = 0;
@@ -149,7 +146,20 @@ void num_s2vpt(void *addr, char *buf)
       r *= 1048576L;
       break;
   }
-  *(unsigned short *)addr = (r+4095L)/4096L;
+  *(unsigned long *)addr = (r+4095L)/4096L;
+}
+
+void num_vpt2s(void *addr, char *buf)
+{
+  unsigned long v = *(unsigned short *)addr;
+  num_vlp2s((void *)&v, buf);
+}
+
+void num_s2vpt(void *addr, char *buf)
+{
+  unsigned long r;
+  num_s2vlp((void *)&r, buf);
+  *(unsigned short *)addr = (unsigned short)r;
 }
 
 #define Ofs(n) ((int)&(((CWSDPMI_pblk *)0)->n))
@@ -193,9 +203,9 @@ struct {
   },
   {
     "maxswap",
-    "Maximum number of 4K pages in swap file",
+    "Maximum size of swap file",
     Ofs(maxdblock),
-    num_v2s, num_s2v
+    num_vlp2s, num_s2vlp
   },
   {
     "flags",

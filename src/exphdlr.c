@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
+/* Copyright (C) 1995-1999 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -12,6 +12,8 @@
 */
 /* PC98 support contributed 6-95 tantan SGL00213@niftyserve.or.jp */
 
+#define _USE_PORT_INTRINSICS
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <dos.h>
@@ -22,11 +24,11 @@
 #include "idt.h"
 #include "tss.h"
 #include "utils.h"
+#include "valloc.h"
 #include "paging.h"
 #include "vcpi.h"
 #include "dpmisim.h"
 #include "dalloc.h"
-#include "valloc.h"
 #include "control.h"
 #include "mswitch.h"
 #include "exphdlr.h"
@@ -84,9 +86,9 @@ static word8 hw_int_rmcb[n_user_hwint] = {num_rmcb, num_rmcb, num_rmcb, num_rmcb
   num_rmcb, num_rmcb, num_rmcb, num_rmcb, num_rmcb, num_rmcb, num_rmcb };
 dpmisim_rmcb_struct dpmisim_rmcb[num_rmcb];
 
-extern far far32 i30x_jump;
-extern far far32 i30x_stack;
-extern far word8 i30x_sti;
+extern far32 far i30x_jump;
+extern far32 far i30x_stack;
+extern word8 far i30x_sti;
 extern void ivec31x(void);
 extern char in_rmcb;
 
@@ -352,7 +354,7 @@ static FUNC exception_handler_list[] = {
   /* 15 */ generic_handler,	/* Lots of strange things */
   /* 16 */ generic_handler,	/* Keyboard */
   /* 17 */ generic_handler,	/* Parallel printer */
-  U, U,				/* ROM Basic, Reboot */
+  U, generic_handler,		/* ROM Basic, Reboot */
   /* 1a */ generic_handler,	/* Get/set system time */
   generic_handler, generic_handler, /* ^Break and User Tic */
   U, U, U, U,			/* Data pointers, "exit" */
@@ -373,7 +375,7 @@ int exception_handler(void)
 {
   int i;
   i = tss_ptr->tss_irqn;
-/*  cprintf("i=%#02x\r\n", i); /* */
+/*  errmsg("i=%#02x\r\n", i); /* */
   if (i < NUM_EXCEPTIONS)
     return (exception_handler_list[i])();
 #if 0
@@ -556,7 +558,7 @@ static void set_para_limit(word16 i, word16 npara)
 
 static int i_31(void)
 {
-/*  mprintf("DPMI request 0x%x 0x%x 0x%x 0x%lx\r\n",(word16)(tss_ptr->tss_eax),
+/*  errmsg("DPMI request 0x%x 0x%x 0x%x 0x%lx\r\n",(word16)(tss_ptr->tss_eax),
     (word16)(tss_ptr->tss_ebx),(word16)(tss_ptr->tss_ecx),(tss_ptr->tss_edx));   /* */
   (word8)tss_ptr->tss_eflags &= ~1;	/* Clear carry, only set on failure */
 #if 0	/* Testing code for 16-bit */
@@ -633,7 +635,7 @@ static int i_31(void)
     case 0x0008: /* Set Selector Limit.  */
       {
       word16 i, j, k;
-/*    word32 *show32; show32 = ldt + i; printf("Descriptor(%d,8): 0x%lx 0x%lx\n",i,show32[0],show32[1]); */
+/*    word32 *show32; show32 = ldt + i; errmsg("Descriptor(%d,8): 0x%lx 0x%lx\n",i,show32[0],show32[1]); */
       ASSIGN_LDT_INDEX(i, ebx);
       j = (word16)tss_ptr->tss_edx;
       k = (word16)tss_ptr->tss_ecx;
@@ -942,11 +944,11 @@ static int i_31(void)
       {
       word16 i = reg2gate((word8)tss_ptr->tss_ebx);
 /*      if(hwirq != -1)
-      cprintf("205: %x (%x, %d) 0x%x 0x%lx\r\n",(word8)(tss_ptr->tss_ebx),i, hwirq,
+      errmsg("205: %x (%x, %d) 0x%x 0x%lx\r\n",(word8)(tss_ptr->tss_ebx),i, hwirq,
          (word16)(tss_ptr->tss_ecx),(tss_ptr->tss_edx));   /* */
       /* Must use ring 0 handler for i < 8 (bug) and hwirq */
 /*      if(i < 8) {
-        mprintf("Warning: setting PM Int %d not supported\n",i);
+        errmsg("Warning: setting PM Int %d not supported\n",i);
         EXIT_ERROR;
       } */
       if(hwirq != -1) {
@@ -1126,6 +1128,15 @@ static int i_31(void)
       (word16)tss_ptr->tss_edx = (old_master_lo << 8) | hard_slave_lo;
       EXIT_OK;
 
+#if 1
+    case 0x0401: /* 1.0 Get DPMI Capabilities.  */
+      (word16)tss_ptr->tss_eax = 0x2d; /* No restart, zero-fill, host writeprot */
+      (word16)tss_ptr->tss_ebx = 0;
+      (word16)tss_ptr->tss_ecx = 0;
+      memput(tss_ptr->tss_es, tss_ptr->tss_edi, "\5\0CWSDPMI", 10);
+      EXIT_OK;
+#endif
+
     case 0x0500: /* Get Free Memory Information.  */
       {
       word32 tmp_buffer[12];
@@ -1228,6 +1239,7 @@ static int i_31(void)
       {
       AREAS *area = firstarea;
       word32 start = tss_ptr->tss_esi;
+      if(CWSFLAG_NOEXT) EXIT_ERROR;
       while(area) {
         if(start == area->first_addr) {
           start += tss_ptr->tss_ebx;
@@ -1247,6 +1259,7 @@ static int i_31(void)
       {
       AREAS *area = firstarea;
       word32 start = tss_ptr->tss_esi;
+      if(CWSFLAG_NOEXT) EXIT_ERROR;
       while(area) {
         if(start == area->first_addr) {
           word32 size = tss_ptr->tss_ecx << 12;
@@ -1268,17 +1281,27 @@ static int i_31(void)
 
     case 0x0600: /* Lock Linear Region.  */
     case 0x0601: /* Unlock Linear Region.  */
+#if run_ring != 0
     {
       word32 vaddr, size;
       vaddr = (word16)tss_ptr->tss_ecx + (tss_ptr->tss_ebx << 16);
       size = (word16)tss_ptr->tss_edi + (tss_ptr->tss_esi << 16);
-      /* bugs here - our lock/unlock does not keep lock count */
+#if 0
+      /* Should we allow locking DOS memory?  The 0.9 spec doesn't say much
+         other than it's not needed.  The 1.0 spec says its OK.  DJGPP 
+         programmers sometimes miss the selector base so failure helps them
+         catch errors.  */
+      if (vaddr < 0x100000L)
+        EXIT_OK;
+#endif
       if (vaddr < 0x10000000L)
         EXIT_ERROR;
+      /* bugs here - our lock/unlock does not keep lock count */
       if(lock_memory(vaddr,size,(word8)tss_ptr->tss_eax))
         EXIT_ERROR;
       EXIT_OK;
     }
+#endif
 
     case 0x0602: /* Mark Real Mode Region as Pageable.  */
     case 0x0603: /* Relock Real Mode Region.  */

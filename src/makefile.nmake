@@ -9,7 +9,7 @@ IMAGE = cwsdpr$(RING).exe
 !endif
 
 AFLAGS = /mx /t /drun_ring=$(RING) /dI31PROT
-CFLAGS = -ms -G- -O -Z -a -1 -f- -d -w5 -g12 -Drun_ring=$(RING) -DI31PROT
+CFLAGS = -ms -G- -O -Z -a -3 -f- -d -w5 -g12 -Drun_ring=$(RING) -DI31PROT
 
 CC=bcc
 ASM=tasm
@@ -23,27 +23,43 @@ ASM=tasm
 .asm.obj:
 	$(ASM) $(AFLAGS) $*;
 
+#	start.obj\
+#	control.obj\
+
 OBJ1 =\
-	start.obj\
-	control.obj\
 	dalloc.obj\
 	doutils.obj\
 	dpmisim.obj\
 	exphdlr.obj\
 	mswitch.obj\
-	paging.obj
-OBJ2 =\
+	paging.obj\
 	tables.obj\
-	utils.obj\
-	unload.obj\
+	utils.obj
+
+#	unload.obj\
+
+OBJ2 =\
 	valloc.obj\
 	xms.obj\
 	vcpi.obj
 
-all : $(IMAGE)
+all : $(IMAGE) cwsdstub.exe
 
-$(IMAGE) : $(RING).rng $(OBJ1) $(OBJ2) ehdrfix.exe cwsparam.exe
-	echo $(OBJ1)+ > cws.lnk
+constub.obj : control.c control.obj
+	$(CC) $(CFLAGS) -DSTUB -c -oconstub.obj control.c 
+
+$(IMAGE) : $(RING).rng start.obj control.obj $(OBJ1) unload.obj $(OBJ2) ehdrfix.exe cwsparam.exe
+	echo start.obj control.obj+ > cws.lnk
+	echo $(OBJ1)+ >> cws.lnk
+	echo unload.obj $(OBJ2),$*.exe,$*.map >> cws.lnk
+	tlink /3 /s /c /m @cws.lnk
+	del cws.lnk
+	./ehdrfix $*.exe
+	./cwsparam -v $*.exe
+
+cwsdstub.exe : cwsdstub.obj start.obj constub.obj $(OBJ1) $(OBJ2) ehdrfix.exe cwsparam.exe
+	echo cwsdstub.obj start.obj constub.obj+ > cws.lnk
+	echo $(OBJ1)+ >> cws.lnk
 	echo $(OBJ2),$*.exe,$*.map >> cws.lnk
 	tlink /3 /s /c /m @cws.lnk
 	del cws.lnk

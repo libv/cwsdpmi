@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
+/* Copyright (C) 1995-2000 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -55,7 +55,7 @@ TSS *tss_ptr;
 word8 vcpi_installed = 0;	/*  VCPI Installed Flag  */
 word8 use_xms=0;
 
-CWSDPMI_pblk CWSpar = { "CWSPBLK", "c:\\cwsdpmi.swp", 0, 0, 128, 3840, 32760 };
+CWSDPMI_pblk CWSpar = { "CWSPBLK", "c:\\cwsdpmi.swp", 0, 0, 128, 3840, 32768UL };
 
 static char *exception_names[] = {
   "Division by Zero",
@@ -144,6 +144,7 @@ void cleanup(int exitcode)
     movedata(current_es, 0, _DS, FP_OFF(&a_tss), 6*16);
   } else {				/* This is the last nested process */
     dalloc_uninit();
+    _AH = 0x19; geninterrupt(0x21);	/* DOS call to work around hangup bug */
     uninit_controllers();
     valloc_uninit();
     if(CWSFLAG_EARLY)
@@ -250,10 +251,14 @@ void main1(void)	/* int argc, char **argv) */
 {
   /* Check for cpu type in assembly main to avoid 8088 problems with 'enter' */
 
+#ifndef STUB
   if (_osmajor < 3) {
     errmsg("DOS 3 required.\n");
     exit(1);
   }
+
+  _restorezero();
+#endif
 
   if(CWSFLAG_NOUMB)
     _osmajor = 4;	/* Don't try to use UMB */
@@ -263,11 +268,13 @@ void main1(void)	/* int argc, char **argv) */
     mtype = PC98;
   }
 
-  _restorezero();
-
 #if run_ring != 0
   dalloc_file(CWSpar.swapname);		/* default */
+#else
+  CWSpar.maxdblock = 0;
 #endif
+
+#ifndef STUB
   {
   char far *ptr;
   int i,nc;
@@ -278,9 +285,11 @@ void main1(void)	/* int argc, char **argv) */
   for(i=0;i<nc;i++) {
     if(ptr[i] == '-') {
       char test = 0x20 | ptr[++i];	/* make lower case if upper */
-      errmsg("CWSDPMI V0.90+ (r4) Copyright (C) 1997 CW Sandmann  ABSOLUTELY NO WARRANTY\n");
+      errmsg("CWSDPMI V0.90+ (r5) Copyright (C) 2000 CW Sandmann  ABSOLUTELY NO WARRANTY\n");
       if(test == 'p')			/* persistent, permanent */
         one_pass = 0;
+      else if(test == 'x')		/* no eXtensions */
+        CWSpar.flags |= 4;
       else if(test == 'u') {		/* unload */
         extern void unload_tsr(void);
         unload_tsr();
@@ -302,11 +311,7 @@ void main1(void)	/* int argc, char **argv) */
     }
   }
   }
-  _ES = peek(_psp,0x2c);	/* Deallocate TSR environment */
-  _AH = 0x49;
-  geninterrupt(0x21);
-  _close(0); _close(1);		/* Close stdin, stdout, AUX, PRN */
-  _close(3); _close(4);
+#endif
 
   use_xms = xms_installed();
 
@@ -319,7 +324,6 @@ void main1(void)	/* int argc, char **argv) */
     }
   }
 
-  _BX = 2; _AH = 0x3e; geninterrupt(0x21);	/* Close stderr, tc thinks open */
 #if run_ring != 0
   gdt[g_iret].lim0 = (word16)ring0_iret;	/* Call gate to do IRET */
   gdt[g_iret].base0 = g_rcode*8;
@@ -348,9 +352,20 @@ void main1(void)	/* int argc, char **argv) */
     init_size = (CWSpar.pagedir + 5) << 8;
 
   DPMIsp = _SP;
+
+#ifndef STUB
+  _ES = peek(_psp,0x2c);	/* Deallocate TSR environment */
+  _AH = 0x49;
+  geninterrupt(0x21);
+  _close(0); _close(1);		/* Close stdin, stdout, AUX, PRN */
+  _close(3); _close(4);
+
+  _BX = 2; _AH = 0x3e; geninterrupt(0x21);	/* Close stderr, tc thinks open */
+
   _DX = _brklvl[1] - _psp;
   _AX = 0x3100;
   geninterrupt(0x21);
+#endif
 }
 
 void DPMIstartup(void)

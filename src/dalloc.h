@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
+/* Copyright (C) 1995-1999 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -11,15 +11,14 @@
 ** warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
 
-#define MAX_DARRAY 8192		/* 4096 * 8 -> 128 Mb */
-
-#if MAX_DARRAY > 8192
-typedef unsigned long da_pn;	/* Must be unsigned long for > 256Mb virtual */
-#else
+/* This type must be consistent with maxdblock of CWSDPMI_pblk in control.h */
+#if 0
 typedef unsigned short da_pn;
+#define MAX_DBLOCK 0xffff
+#else
+typedef unsigned long da_pn;	/* Must be unsigned long for > 256Mb virtual */
+#define MAX_DBLOCK 0xffffffffUL
 #endif
-
-#define MAX_DBLOCK ((da_pn)(MAX_DARRAY-1) << 3)
 
 #if run_ring != 0
 

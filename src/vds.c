@@ -40,11 +40,11 @@ void memcpy32(word16 tsel, word32 taddr, word16 ssel, word32 saddr, word16 len)
   tss_ptr = old_ptr;
 }
 
-void sort(word16 *x, int n)
+void sort(va_pn *x, int n)
 {
   int ndelta,i;
   char inorder;
-  word16 t;
+  va_pn t;
   
   ndelta = n;
   while(ndelta > 1) {
@@ -65,7 +65,7 @@ void sort(word16 *x, int n)
 #define TRYMAX 16	/* About 2X times size wanted */
 int init_vds(void)	/* allocate a contig buffer not crossing 64K boundary */
 {
-  word16 pn[TRYMAX],j;
+  va_pn pn[TRYMAX];
   int i,start,startt,size,sizet;
 
   for(i=0;i<TRYMAX;i++)
@@ -408,7 +408,7 @@ int i_4b(void)
    level routines instead *
 
 static int16 vds_emb_handle = -1;
-static unsigned vds_pn = 0;
+static va_pn vds_pn = 0;
 
 word32 alloc_vds_buffer(int size)
 {
