@@ -18,6 +18,5 @@
 13) Raw mode save state may not be implemented when it is needed.
 14) Raw mode switching must be in matched pairs.
 16) Page locking is binary (no lock count maintained).
-17) Physical address mapping may conflict with memory blocks (not checked).
 18) The big bit *MUST* be set on the operating stack's SS selector.
 19) Values returned by memory information underestimate lockable memory.

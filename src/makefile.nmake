@@ -11,7 +11,7 @@ IMAGE = cwsdpr$(RING).exe
 AFLAGS = /mx /t /drun_ring=$(RING) /dI31PROT
 CFLAGS = -ms -G- -O -Z -a -1 -f- -d -w5 -g12 -Drun_ring=$(RING) -DI31PROT
 
-CC=tcc
+CC=bcc
 ASM=tasm
 
 .c.obj:

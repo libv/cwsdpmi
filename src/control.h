@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -24,14 +24,6 @@
   fclose (f); }
 #endif
 
-/* typedef struct backlink {
-  TSS a_tss;
-  word16 psp;
-  word16 old_env;
-  AREAS areas[MAX_AREA];
-  DESC_S ldt[l_num];
-}; */
-
 #ifdef DIAGNOSE
 #define SHOW_MEM_INFO(a,b) errmsg(a,b);
 #else
@@ -51,6 +43,7 @@ void cleanup(int exitcode);
 void do_faulting_finish_message(void);
 word16 get_pid(void);
 void set_pid(word16 pid);
+void memsetf(word16 offset, word8 value, word16 size, word16 seg);
 
 typedef struct {
   char   magic[8];	/* Must contain CWSPBLK\0 */
@@ -59,6 +52,10 @@ typedef struct {
   word16 pagedir;	/* Default 0 (auto), one per 4Mb */
   word16 minapp;	/* PAGES of free extended memory; paging in 1Mb area */
   word16 savepar;	/* PARAGRAPHS DOS memory to save if paging in 1Mb */
+  word16 maxdblock;	/* Maximum 4K pages to swap to disk */
 } CWSDPMI_pblk;
 
 extern CWSDPMI_pblk CWSpar;
+
+#define CWSFLAG_NOUMB (word8)CWSpar.flags&1	/* Don't use UMB blocks */
+#define CWSFLAG_EARLY (word8)CWSpar.flags&2	/* Pre-Allocate PT memory */

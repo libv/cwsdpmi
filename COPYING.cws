@@ -1,31 +1,22 @@
-This is the file "copying.cws"  Copyright (C) 1995,1996 Charles W Sandmann
+This is the file "copying.cws"  Copyright (C) 1995-1997 Charles W Sandmann
 It must be distributed verbatim.  Changing it is not allowed.
 
    Copyright information for sources and executables that are marked
    Copyright (C) CW Sandmann (sandmann@clio.rice.edu)
                  1206 Braelinn
-                 Sugarland, TX 77479
+                 Sugar Land, TX 77479
 
 Source code copyright CW Sandmann is distributed under the terms of the
-GNU General Public License (see COPYING), with the following exceptions:
+GNU General Public License (see COPYING).
 
-* This file (copying.cws) must be be included with any source code.
-
-* Any existing copyright or authorship information in any given source
-file must remain intact.  If you modify a source file, a notice to that
-effect must be added to the authorship information in the source file. 
-
-* the official CWSDPMI.EXE and CWSDPR0.EXE binaries (ones provided by me)
-may be distributed without sources ONLY if the recipient is notified of 
-their right to receive the source for this program and given sufficient 
-information to obtain a copy of the source.
-
-* distribution of this program with commercial or shareware programs
-is allowed but requires notification of the author by mail or acknowleged 
-email.  This is so I can make sure you are aware of maintenance fixes.
-
-* recompiled or modified (including compressed) versions of the CWSDPMI.EXE 
-and CWSDPR0.EXE binaries must be distributed under the terms of the GPL.
+In addition to the permissions given by the GNU GPL, I give permission to 
+distribute the official CWSDPMI.EXE, CWSDPR0.EXE or CWSPARAM.EXE binaries 
+(as released by me, Charles Sandmann, without modification) together with
+precise information as to where to obtain source code on the Internet, in 
+place of the source code or written offer as called for in section 3 of 
+the GNU GPL version 2.  This includes FREE distributions with commercial 
+and shareware programs.  However, you must still follow the GNU GPL in all 
+other respects.
 
 -----
 

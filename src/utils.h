@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -17,3 +17,4 @@ void memput(word16 umemsel, word32 vaddr, void far *ptr, word16 len);
 void memget(word16 umemsel, word32 vaddr, void far *ptr, word16 len);
 
 extern TSS *utils_tss;
+extern void _do_memmov32();

@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -37,6 +37,7 @@
 /* Note, the near heap and stack are pooled.  EHDRFIX.C reads the lines below */
 /* and adds paragraphs required to the exe header.  Each task takes 304 bytes */
 /* (dpmisim stack + 0x30), each memory zone 14 bytes, each HW int around 850 */
+/* paging space flags need 32 bytes per Mb (8Kb for 256Mb max) return unused */
 extern unsigned _stklen = 4096U;	/* Plus heap added in exe hdr */
 extern unsigned int _brklvl[2];		/* hi word is free seg after our prog */
 extern void _restorezero(void);
@@ -54,7 +55,7 @@ TSS *tss_ptr;
 word8 vcpi_installed = 0;	/*  VCPI Installed Flag  */
 word8 use_xms=0;
 
-CWSDPMI_pblk CWSpar = { "CWSPBLK", "c:\\cwsdpmi.swp", 0, 0, 128, 3840 };
+CWSDPMI_pblk CWSpar = { "CWSPBLK", "c:\\cwsdpmi.swp", 0, 0, 128, 3840, 32760 };
 
 static char *exception_names[] = {
   "Division by Zero",
@@ -64,16 +65,16 @@ static char *exception_names[] = {
   "Overflow",
   "Bounds Check",
   "Invalid Opcode",
-  "Coprocessor unavailable",
+  "FPU unavailable",
   "Double Fault",
-  "Coprocessor overrun",
+  "FPU overrun",
   "Invalid TSS",
   "Segment Not Present",
   "Stack Fault",
   "General Protection Fault",
-  "Page fault",
+  "Page Fault",
   0,
-  "Coprocessor Error",
+  "FPU Error",
 };
 #define EXCEPTION_COUNT (sizeof(exception_names)/sizeof(exception_names[0]))
 
@@ -145,6 +146,8 @@ void cleanup(int exitcode)
     dalloc_uninit();
     uninit_controllers();
     valloc_uninit();
+    if(CWSFLAG_EARLY)
+      init_size = (CWSpar.pagedir + 5) << 8;
     if (one_pass || a_tss.tss_ebx == ONE_PASS_MAGIC) { /* "magic" for unload */
       setvect(0x2f,oldint2f);
 
@@ -162,7 +165,7 @@ void cleanup(int exitcode)
   geninterrupt(0x21);
 }
 
-void itox(char *buf, int v)
+static void itox(char *buf, int v)
 {
   _DX = v;
   buf += 3;
@@ -225,7 +228,7 @@ void do_faulting_finish_message(void)
   extern char in_rmcb;
   char *en = (tss_ptr->tss_irqn >= EXCEPTION_COUNT) ? 0 : exception_names[tss_ptr->tss_irqn];
   if (en == 0)
-    errmsg("Interrupt 0x%02x", tss_ptr->tss_irqn);
+    errmsg("Int 0x%02x", tss_ptr->tss_irqn);
   else
     errmsg("%s", en);
   if(tss_ptr->tss_irqn == 14)
@@ -252,6 +255,9 @@ void main1(void)	/* int argc, char **argv) */
     exit(1);
   }
 
+  if(CWSFLAG_NOUMB)
+    _osmajor = 4;	/* Don't try to use UMB */
+
   if(*(word16 far *)MK_FP(0xf000, 0xfff3) == 0xfd80) {
     hard_slave_lo = 0x10;		/* PC98 slave */
     mtype = PC98;
@@ -272,7 +278,7 @@ void main1(void)	/* int argc, char **argv) */
   for(i=0;i<nc;i++) {
     if(ptr[i] == '-') {
       char test = 0x20 | ptr[++i];	/* make lower case if upper */
-      errmsg("CWSDPMI V0.90+ (r3) Copyright (C) 1995 CW Sandmann  ABSOLUTELY NO WARRANTY\n");
+      errmsg("CWSDPMI V0.90+ (r4) Copyright (C) 1997 CW Sandmann  ABSOLUTELY NO WARRANTY\n");
       if(test == 'p')			/* persistent, permanent */
         one_pass = 0;
       else if(test == 'u') {		/* unload */
@@ -338,6 +344,9 @@ void main1(void)	/* int argc, char **argv) */
   oldint2f = getvect(0x2f);
   setvect(0x2f, dpmiint2f);
 
+  if(CWSFLAG_EARLY)
+    init_size = (CWSpar.pagedir + 5) << 8;
+
   DPMIsp = _SP;
   _DX = _brklvl[1] - _psp;
   _AX = 0x3100;
@@ -392,8 +401,8 @@ void DPMIstartup(void)
     aenv = l_aenv;
     dr[7] = 0L;			/* Clear all breakpoints */
 
-    valloc_init();
     dalloc_init();
+    valloc_init(myES);
     paging_setup();
     init_controllers();
 
@@ -421,6 +430,7 @@ void DPMIstartup(void)
 #endif
   }
   movedata(myES, 32, _DS, FP_OFF(&a_tss.tss_eip), 4*14);
+  init_size = 6;
 
   use32 = (word16)a_tss.tss_eax & 1;
 

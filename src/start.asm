@@ -1,4 +1,4 @@
-; Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+; Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ;
 ; This file is distributed under the terms listed in the document
 ; "copying.cws", available from CW Sandmann at the address above.
@@ -27,11 +27,9 @@ firstf		dw	offset DGROUP:bss_end
 
 	start_bss
 bss_start 	label	byte
-	public	_errno
-_errno		dw	?
 	end_bss
 
-_bssend segment
+_bssend segment use16
 bss_end		label	word
 	ends
 
@@ -71,10 +69,10 @@ mem_ok:	mov	bx, di
 
 	add	bx, dx		; Segment value for end of our new DGROUP
 	mov	word ptr __brklvl+2, bx
-	mov	ax, es		; __psp 
-	sub	bx, ax		; Number of paragraphs to keep
-	mov	ah, 04Ah	; DOS resize memory block call
-	int	021h
+;	mov	ax, es		; __psp 
+;	sub	bx, ax		; Number of paragraphs to keep
+;	mov	ah, 04Ah	; DOS resize memory block call
+;tsr..	int	021h
 
 ;	Clear BSS area to zero
 
@@ -125,10 +123,10 @@ comn1:	mov	dx,[bp+4]	; Name of file
 
 	PUBLIC	__write
 __write	proc	near
-	push	bp
-	mov	bp,sp
 	mov	ah,40h		; Write
-com3:	mov	cx,[bp+8]	; Buffer size
+com3:	push	bp
+	mov	bp,sp
+	mov	cx,[bp+8]	; Buffer size
 	mov	dx,[bp+6]	; Buffer offset
 com1:	mov	bx,[bp+4]	; File handle
 	int	21h
@@ -140,16 +138,12 @@ do_ret:	pop	bp
 
 	PUBLIC	__read
 __read	proc	near
-	push	bp
-	mov	bp,sp
 	mov	ah,3fh		; Read
 	jmp	short com3
 	endp
 
 	PUBLIC	_lseek
 _lseek	proc	near
-	push	bp
-	mov	bp,sp
 	mov	ax,4200h	; Seek absolute (always abs here)
 	jmp	short com3
 	endp
@@ -269,7 +263,7 @@ csub	_setvect
 csub	_memset
 	push	ds
 	pop	es
-	cld
+ms1:	cld
 	push	di
 	mov	di,[bp+4]
 	mov	al,[bp+6]
@@ -278,6 +272,11 @@ csub	_memset
 	pop	di
 	pop	bp
 	ret
+
+csub	_memsetf
+	mov	es,[bp+10]
+	jmp	short ms1
+	
 	
 csub	_movedata
 	push	si

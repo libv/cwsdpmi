@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -32,10 +32,11 @@
 #define PAGE2PARA 256
 #define KB2PARA 64
 
-static word8 map[4096];		/* Expanded/Extended paged by valloc() */
+static word8 far *map;		/* Expanded/Extended paged by valloc() */
+extern word8 far *dmap;		/* Paging memory allocated here too */
 
 static word16 mem_avail;
-static word16 mem_used;		/* Pages, max 256Mb */
+static word16 mem_used;		/* Pages, max 128Mb set above */
 
 static unsigned pn_lo_first, pn_lo_last, pn_hi_first, pn_hi_last;
 static unsigned pn_lo_next, pn_hi_next;
@@ -56,12 +57,12 @@ static void xms_free(void)
 static void xms_alloc_init(void)
 {
   word32 linear_base;
-  word16 emb_size;
+  word32 emb_size;
   if((emb_size = xms_query_extended_memory()) != 0) {
     emb_handle = xms_emb_allocate(emb_size);
     linear_base = xms_lock_emb(emb_handle);
     pn_hi_first = (word16)((linear_base + 4095)/4096);
-    pn_hi_last = (word16)((linear_base + emb_size * 1024L)/4096 - 1);
+    pn_hi_last = (word16)((linear_base + (emb_size << 10))/4096 - 1);
   } else {
     pn_hi_first = 1;
     pn_hi_last = 0;
@@ -75,6 +76,8 @@ static unsigned desired_pt;
 static unsigned strategy, umbstat;
 static unsigned mempid;
 static unsigned oldmempid;
+static unsigned extrapara;
+static word8 valid;
 
 static void set_umb(void)
 {
@@ -122,15 +125,18 @@ static void restore_umb(void)
 
 static int alloc_pagetables(int mintable, int wanttable)
 {
+  unsigned pagebase;
+
   set_umb();
   _AH = 0x48;		/* get real memory size */
   _BX = 0xffff;
   geninterrupt(0x21);	/* lol == size of largest free memory block */
   lol = _BX;
 
-  if (lol < mintable*PAGE2PARA)	/* 1 PD, 1 PT (real), 1 PT (user) */
+  if (lol < mintable*PAGE2PARA + extrapara)	/* 1 PD, 1 PT (real), 1 PT (user) */
     goto mem_exit;
 
+  lol -= extrapara;
   if (lol > wanttable*PAGE2PARA) {	/* 8 will probably result in 5 user pt */
     if (mem_avail > MINAPPMEM)			/* 256K extended */
       lol = wanttable*PAGE2PARA;
@@ -141,19 +147,23 @@ static int alloc_pagetables(int mintable, int wanttable)
     }
   }
 
+  lol += extrapara;
   _BX = lol;
   _AH = 0x48;
   geninterrupt(0x21);		/* get the block */
   valloc_lowmem_page = _AX;
   if (_FLAGS & 1) {
 mem_exit:
+    valid = 0;
     restore_umb();
     return 1;
   }
 
+  valid = 1;
+  pagebase = valloc_lowmem_page + extrapara;
   /* shrink memory to 4K align */
-  if (valloc_lowmem_page & 0xFF) {
-    lol -= (valloc_lowmem_page & 0xFF);
+  if (pagebase & 0xFF) {
+    lol -= (pagebase & 0xFF);
     _ES = valloc_lowmem_page;
     _BX = lol;
     _AH = 0x4A;
@@ -161,14 +171,12 @@ mem_exit:
   }
   restore_umb();
 
-  pn_lo_first = (valloc_lowmem_page+0xFF) >> 8;	/* lowest real mem 4K block */
+  pn_lo_next = pn_lo_first = (pagebase+0xFF) >> 8;	/* lowest real mem 4K block */
   pn_lo_last = (valloc_lowmem_page+lol-0x100)>>8;	/* highest real mem 4K block */
-
-  pn_lo_next = pn_lo_first;
   return 0;
 }
 
-void valloc_init(void)
+void valloc_init(word16 ies)
 {
   unsigned i;
 
@@ -189,7 +197,7 @@ void valloc_init(void)
   } else if (use_xms) {
     xms_alloc_init();	/* Try XMS allocation */
     if (cpumode()) {
-      errmsg("\nError: Using XMS switched the CPU into V86 mode.\n");
+      errmsg("\nError: Using XMS switched CPU into V86 mode.\n");
       xms_free();
       _exit(1);
     }
@@ -230,14 +238,24 @@ void valloc_init(void)
       desired_pt = 8;
   }
 
+  extrapara = (CWSpar.maxdblock + pn_hi_last + 135) >> 7;    /* 7 + 8 + 15*8 */
   mempid = 0;
-  if(alloc_pagetables(MINPAGEDIR, desired_pt)) {
+
+  if(CWSFLAG_EARLY) {
+    valid = 0;						/* Give up on resize */
+    valloc_lowmem_page = ies + 16;			/* For TSS */
+    pn_lo_next = pn_lo_first = (valloc_lowmem_page + extrapara + 0xff) >> 8;
+    pn_lo_last = (ies >> 8) + CWSpar.pagedir + 4;
+  } else if(alloc_pagetables(MINPAGEDIR, desired_pt)) {
     errmsg("Error: could not allocate page table memory\n");
     xms_free();
     _exit(1);
   }
-
-  memset(map, 0, 4096);
+  
+  map = MK_FP(valloc_lowmem_page, 0);
+  dmap = MK_FP(valloc_lowmem_page, ((pn_hi_last >> 3) + 1));
+  memsetf(0, 0, extrapara << 4, valloc_lowmem_page);
+  extrapara = 0;
 
   mem_used = 0;
   valloc_initted = 1;
@@ -300,7 +318,7 @@ unsigned valloc_640(void)
   }
 
   /* First try to resize current block instead of paging */
-  {
+  if(valid) {
     int failure;
     set_umb();
     lol += PAGE2PARA;
@@ -312,11 +330,11 @@ unsigned valloc_640(void)
     restore_umb();
     if(!failure)
       return (valloc_lowmem_page+lol-0x100)>>8;
-    /* Okay, not unexpected.  Allocate a new block, we can 
-       hopefully resize it later if needed. */
-    if(!alloc_pagetables(2,2))
-      return pn_lo_last--;
   }
+  /* Okay, not unexpected.  Allocate a new block, we can 
+     hopefully resize it later if needed. */
+  if(!alloc_pagetables(2,2))
+    return pn_lo_last--;
 
   pn = page_out_640();
   if (pn == 0xffff) {

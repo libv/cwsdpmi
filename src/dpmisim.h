@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -36,6 +36,7 @@ extern void savestate_real(void);
 extern void savestate_prot(void);
 
 extern word16 DPMIsp;
+extern word16 far init_size;
 extern word8 far cpu_family;
 extern void interrupt (* far oldint2f)();
 extern void interrupt dpmiint2f(void);

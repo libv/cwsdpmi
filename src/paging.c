@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -35,7 +35,7 @@
 static FILE *dfp = NULL;
 #endif
 
-#define DOS_PAGE 256		/*  1MB / 4KB = 256 Pages  */
+#define DOS_PAGE 272		/*  1MB+64K / 4KB = 272 Pages  */
 
 struct {
   word16 limit;

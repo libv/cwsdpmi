@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -376,6 +376,10 @@ int exception_handler(void)
 /*  cprintf("i=%#02x\r\n", i); /* */
   if (i < NUM_EXCEPTIONS)
     return (exception_handler_list[i])();
+#if 0
+  else if(i == 0x4b)
+    return i_4b();
+#endif
   else
     return generic_handler();
 }
@@ -1307,8 +1311,11 @@ static int i_31(void)
       word32 phys, vaddr, size;
       size = (word16)tss_ptr->tss_edi + (tss_ptr->tss_esi << 16);
       vaddr = phys = (word16)tss_ptr->tss_ecx + (tss_ptr->tss_ebx << 16);
-      if((word8)(vaddr >> 28) == 1)	/* Conflict with our default mapping */
+      if((word16)tss_ptr->tss_ebx < 0x10) EXIT_ERROR;	/* Don't map 1M area */
+      if((word8)((word16)tss_ptr->tss_ebx >> 12) == 1) {	/* Conflict with our default mapping */
         vaddr += 0x10000000;
+        (word16)tss_ptr->tss_ebx += 0x1000;
+      }
       physical_map(phys,size,vaddr);  /* Does 1:1 mapping, we return BX:CX */
       EXIT_OK;
     }

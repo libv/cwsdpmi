@@ -190,13 +190,19 @@ struct {
     "Paragraphs of memory for extra CWSDPMI internal heap",
     -2,
     num_v2s, num_s2v
-  }
-/*  {
+  },
+  {
+    "maxswap",
+    "Maximum number of 4K pages in swap file",
+    Ofs(maxdblock),
+    num_v2s, num_s2v
+  },
+  {
     "flags",
-    "Value of run flags",
+    "Value of run option flags",
     Ofs(flags),
     num_v2s, num_s2v
-  },*/
+  }
 };
 
 #define NUM_FIELDS (sizeof(per_field) / sizeof(per_field[0]))

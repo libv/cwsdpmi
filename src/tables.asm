@@ -1,4 +1,4 @@
-; Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+; Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ; Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 ;
 ; This file is distributed under the terms listed in the document
@@ -98,8 +98,8 @@ _interrupt_common:
 	mov	[bx].tss_cr2,eax
 	jmp	short has_no_error
 check_SW_int:
-	lgs	edi,fs:[esi]		; CS:EIP -> GS:EDI
-	mov	ax,gs:[edi-2]		; Get two bytes before; Int 0x??
+	lgs	ecx,fs:[esi]		; CS:EIP -> GS:ecx
+	mov	ax,gs:[ecx-2]		; Get two bytes before; Int 0x??
 	cmp	al,0cdh			
 	jne	short has_no_error
 	cmp	[bx].tss_irqn,ah

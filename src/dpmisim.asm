@@ -1,4 +1,4 @@
-; Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+; Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ; Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 ;
 ; This file is distributed under the terms listed in the document
@@ -334,6 +334,10 @@ _dpmientrysw	label	dword
 _cpu_family	label	byte
 	dw	?
 
+	public	_init_size
+_init_size 	label	word
+	dw	6
+
 	public	_dpmiint2f
 _dpmiint2f:
 	cmp	ax,1687h
@@ -342,7 +346,7 @@ _dpmiint2f:
 	xor	ax,ax			;Yes, we are here
 	mov	bx,1			;32 bit programs supported
 	mov	dx,5ah			;0.90 version
-	mov	si,6			;paragraphs needed for tss save
+	mov	si,cs:_init_size	;paragraphs needed for tss save
 	les	di,cs:_dpmientrysw
 	iret
 not_us:

@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugarland, TX 77479
+/* Copyright (C) 1995-1997 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -24,31 +24,28 @@
 #define DA_FREE	0
 #define DA_USED	1
 
-static word8 map[MAX_DARRAY];
+word8 far *dmap;
+#if run_ring != 0
 static da_pn first_avail;
 static int dfile = -1;
 static da_pn disk_used,disk_max;
+#define max_dblock CWSpar.maxdblock
 static word16 paging_pid;
 
 static void dset(da_pn i, int b)
 {
   unsigned o;
-  word8 m;
   o = (unsigned)(i>>3);
-  m = 1<<((unsigned)i&7);
+  _AL = 1<<((unsigned)i&7);
   if (b)
-    map[o] |= m;
+    dmap[o] |= _AL;
   else
-    map[o] &= ~m;
+    dmap[o] &= ~_AL;
 }
 
 static word8 dtest(da_pn i)
 {
-  unsigned o;
-  word8 m;
-  o = (unsigned)(i>>3);
-  m = 1<<((unsigned)i&7);
-  return map[o] & m;
+  return dmap[(unsigned)(i>>3)] & (1<<((unsigned)i&7));
 }
 
 static char* dfilename;
@@ -60,20 +57,19 @@ void dalloc_file(char *swapname)
 
 void dalloc_init(void)
 {
-  memset(map, 0, sizeof(map));
   disk_used = disk_max = 0;
-  first_avail = MAX_DBLOCK + 1;		/* If no paging */
+  first_avail = MAX_DBLOCK;		/* If no paging */
   if(!dfilename || !dfilename[0]) {
     SHOW_MEM_INFO("  No Paging.\n", 0);
-    return;
-  }
-  dfile = _creat(dfilename, 0);
-  paging_pid = get_pid();
-  if (dfile < 0)
+  } else if (0 > (dfile = _creat(dfilename, 0))) {
     errmsg("Warning: cannot open swap file %s\n", dfilename);
-  else
+  } else {
+    paging_pid = get_pid();
     first_avail = 0;
-  SHOW_MEM_INFO("  Swap space: %ld Kb\n", (dalloc_max_size() * 4L));
+  }
+  max_dblock = dalloc_max_size();
+  /* Actual allocation and zeroing of dmap happens elsewhere (valloc) */
+  SHOW_MEM_INFO("  Swap space: %ld Kb\n", (max_dblock * 4L));
 }
 
 void dalloc_uninit(void)
@@ -91,7 +87,7 @@ void dalloc_uninit(void)
 da_pn dalloc(void)
 {
   da_pn pn;
-  for (pn=first_avail; pn<=MAX_DBLOCK; pn++)
+  for (pn=first_avail; pn<max_dblock; pn++)
     if (dtest(pn) == DA_FREE) {
       dset(pn, DA_USED);
       first_avail = pn+1;
@@ -130,15 +126,15 @@ da_pn dalloc_max_size(void)
   fr = (word32)(ax * cx) * (word32)bx;
   fr >>= 12;
   fr += (unsigned long)disk_max;
-  if (fr > MAX_DBLOCK)
-    fr = MAX_DBLOCK;
+  if (fr > max_dblock)
+    fr = max_dblock;
   return (da_pn)fr;
 }
 
-da_pn dalloc_used(void)
+/* da_pn dalloc_used(void)
 {
   return (da_pn)disk_used;
-}
+} */
 
 void dwrite(word8 *buf, da_pn block)
 {
@@ -162,3 +158,4 @@ void dread(word8 *buf, da_pn block)
   _read(dfile, buf, 4096);
   set_pid(save_pid);
 }
+#endif
