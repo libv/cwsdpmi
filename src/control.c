@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-2000 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
+/* Copyright (C) 1995-2010 CW Sandmann (cwsdpmi@earthlink.net) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -54,6 +54,9 @@ TSS *tss_ptr;
 
 word8 vcpi_installed = 0;	/*  VCPI Installed Flag  */
 word8 use_xms=0;
+#ifdef STKUSE
+word16 simstacku;
+#endif
 
 CWSDPMI_pblk CWSpar = { "CWSPBLK", "c:\\cwsdpmi.swp", 0, 0, 128, 3840, 32768UL };
 
@@ -147,6 +150,9 @@ void cleanup(int exitcode)
     _AH = 0x19; geninterrupt(0x21);	/* DOS call to work around hangup bug */
     uninit_controllers();
     valloc_uninit();
+#ifdef STKUSE
+    errmsg("Stack words used: 0x%x\n",simstacku);
+#endif
     if(CWSFLAG_EARLY)
       init_size = (CWSpar.pagedir + 5) << 8;
     if (one_pass || a_tss.tss_ebx == ONE_PASS_MAGIC) { /* "magic" for unload */
@@ -285,7 +291,7 @@ void main1(void)	/* int argc, char **argv) */
   for(i=0;i<nc;i++) {
     if(ptr[i] == '-') {
       char test = 0x20 | ptr[++i];	/* make lower case if upper */
-      errmsg("CWSDPMI V0.90+ (r5) Copyright (C) 2000 CW Sandmann  ABSOLUTELY NO WARRANTY\n");
+      errmsg("CWSDPMI V0.90+ (r7) Copyright (C) 2010 CW Sandmann  ABSOLUTELY NO WARRANTY\n");
       if(test == 'p')			/* persistent, permanent */
         one_pass = 0;
       else if(test == 'x')		/* no eXtensions */

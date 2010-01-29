@@ -4,8 +4,10 @@
 !if !$d(RING)
 RING = 3
 IMAGE = cwsdpmi.exe
+STUBI = cwsdstub.exe
 !else
 IMAGE = cwsdpr$(RING).exe
+STUBI = cwsdstr$(RING).exe
 !endif
 
 AFLAGS = /mx /t /drun_ring=$(RING) /dI31PROT
@@ -23,9 +25,6 @@ ASM=tasm
 .asm.obj:
 	$(ASM) $(AFLAGS) $*;
 
-#	start.obj\
-#	control.obj\
-
 OBJ1 =\
 	dalloc.obj\
 	doutils.obj\
@@ -34,19 +33,18 @@ OBJ1 =\
 	mswitch.obj\
 	paging.obj\
 	tables.obj\
+	uextmem.obj\
 	utils.obj
-
-#	unload.obj\
 
 OBJ2 =\
 	valloc.obj\
 	xms.obj\
 	vcpi.obj
 
-all : $(IMAGE) cwsdstub.exe
+all : $(IMAGE) $(STUBI)
 
 constub.obj : control.c control.obj
-	$(CC) $(CFLAGS) -DSTUB -c -oconstub.obj control.c 
+	$(CC) $(CFLAGS) -DSTUB -c -oconstub.obj control.c
 
 $(IMAGE) : $(RING).rng start.obj control.obj $(OBJ1) unload.obj $(OBJ2) ehdrfix.exe cwsparam.exe
 	echo start.obj control.obj+ > cws.lnk
@@ -57,7 +55,7 @@ $(IMAGE) : $(RING).rng start.obj control.obj $(OBJ1) unload.obj $(OBJ2) ehdrfix.
 	./ehdrfix $*.exe
 	./cwsparam -v $*.exe
 
-cwsdstub.exe : cwsdstub.obj start.obj constub.obj $(OBJ1) $(OBJ2) ehdrfix.exe cwsparam.exe
+$(STUBI) : cwsdstub.obj start.obj constub.obj $(OBJ1) $(OBJ2) ehdrfix.exe cwsparam.exe
 	echo cwsdstub.obj start.obj constub.obj+ > cws.lnk
 	echo $(OBJ1)+ >> cws.lnk
 	echo $(OBJ2),$*.exe,$*.map >> cws.lnk
@@ -89,21 +87,21 @@ clean :
 
 control.obj : gotypes.h gdt.h idt.h tss.h valloc.h utils.h vcpi.h paging.h exphdlr.h dalloc.h mswitch.h xms.h control.h
 
-dalloc.obj : gotypes.h valloc.h dalloc.h control.h
+dalloc.obj : gotypes.h dalloc.h control.h
 
-doutils.obj : segdefs.inc gdt.inc 
+doutils.obj : segdefs.inc gdt.inc
 
-dpmisim.obj : segdefs.inc tss.inc gdt.inc 
+dpmisim.obj : segdefs.inc tss.inc gdt.inc
 
-exphdlr.obj : gotypes.h gdt.h idt.h tss.h utils.h paging.h vcpi.h dpmisim.h dalloc.h valloc.h control.h 
+exphdlr.obj : gotypes.h gdt.h idt.h tss.h utils.h paging.h vcpi.h dpmisim.h dalloc.h valloc.h control.h mswitch.h exphdlr.h
 
 mswitch.obj : segdefs.inc tss.inc gdt.inc vcpi.inc
 
-paging.obj : gotypes.h paging.h tss.h idt.h gdt.h valloc.h dalloc.h utils.h vcpi.h exphdlr.h control.h
+paging.obj : gotypes.h paging.h tss.h idt.h gdt.h valloc.h dalloc.h utils.h vcpi.h exphdlr.h control.h mswitch.h
 
-tables.obj : segdefs.inc tss.inc gdt.inc 
+tables.obj : segdefs.inc tss.inc gdt.inc
 
-utils.obj : gotypes.h tss.h gdt.h utils.h mswitch.h exphdlr.h
+utils.obj : gotypes.h tss.h gdt.h utils.h mswitch.h exphdlr.h control.h
 
 unload.obj : segdefs.inc
 

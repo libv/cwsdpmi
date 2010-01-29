@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-2000 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
+/* Copyright (C) 1995-2009 CW Sandmann (cwsdpmi@earthlink.net) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -60,3 +60,4 @@ extern CWSDPMI_pblk CWSpar;
 #define CWSFLAG_NOUMB (word8)CWSpar.flags&1	/* Don't use UMB blocks */
 #define CWSFLAG_EARLY (word8)CWSpar.flags&2	/* Pre-Allocate PT memory */
 #define CWSFLAG_NOEXT (word8)CWSpar.flags&4	/* No 1.0 Extensions */
+#define CWSFLAG_NO4M  (CWSpar.flags&8)		/* No 4MB pages */

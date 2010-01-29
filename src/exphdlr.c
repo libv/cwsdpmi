@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-1999 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
+/* Copyright (C) 1995-2010 CW Sandmann (cwsdpmi@earthlink.net) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -77,6 +77,17 @@
 
 #define n_user_excep 15
 #define n_user_hwint 18				/* extras for 0x1c,0x23 */
+#define VADDR_START 0x400000UL
+
+/* If the real mode procedure/interrupt routine uses more than 30 words of
+   stack space then you should provide your own real mode stack.
+   DPMI 0.9 Specification, Chapter 11, page 53 */
+
+#ifdef STKUSE	
+#define STKSIZ 512	/* Words, extra to check usage (bad bios, etc) */
+#else
+#define STKSIZ 128	/* Words, size = 4 x 0.9 spec */
+#endif
 
 static far32 user_exception_handler[n_user_excep];
 far32 user_interrupt_handler[n_user_hwint];
@@ -1011,7 +1022,7 @@ static int i_31(void)
     case 0x0302: /* Call Real Mode Procedure with Iret Frame.  */
       {
       word16 i;
-      word16 dpmisim_spare_stack[128];	/* Size = 4 x 0.9 spec (bad video bios) */
+      word16 dpmisim_spare_stack[STKSIZ];
       word16 far *fptr;
 
 #ifndef I31PROT
@@ -1024,6 +1035,10 @@ static int i_31(void)
       if (dpmisim_regs[24] == 0) {
         dpmisim_regs[24] = _SS;
         dpmisim_regs[23] = (word16)(dpmisim_spare_stack) + sizeof(dpmisim_spare_stack);
+#ifdef STKUSE
+        for(i=0;i<sizeof(dpmisim_spare_stack)/2;i++)
+          dpmisim_spare_stack[i] = 0xeeee;
+#endif
       }
 
       fptr = MK_FP(dpmisim_regs[24], dpmisim_regs[23]); /* Stack pointer */
@@ -1050,6 +1065,14 @@ static int i_31(void)
 
       dpmisim();
 
+#ifdef STKUSE
+      {
+        extern word16 simstacku;
+        for(i=0;dpmisim_spare_stack[i] == 0xeeee;i++);
+        if(simstacku < (sizeof(dpmisim_spare_stack)/2 - i))
+          simstacku = (sizeof(dpmisim_spare_stack)/2 - i);
+      }
+#endif
 #ifndef I31PROT
       /* Only restore 42 bytes; don't modify CS:IP or SS:SP */
       /* The copy of the reg structure from our space is done in ivec31 in
@@ -1123,7 +1146,7 @@ static int i_31(void)
 
     case 0x0400: /* Get Version.  */
       (word16)tss_ptr->tss_eax = 0x005a;
-      (word16)tss_ptr->tss_ebx = 5; /* Cheat, pretend always V86 mode (bit 1) */
+      (word16)tss_ptr->tss_ebx = dalloc_max_size() ? 5 : 1;	/* Lie, always V86 mode (bit 1) */
       (word8)tss_ptr->tss_ecx = cpu_family;
       (word16)tss_ptr->tss_edx = (old_master_lo << 8) | hard_slave_lo;
       EXIT_OK;
@@ -1133,7 +1156,7 @@ static int i_31(void)
       (word16)tss_ptr->tss_eax = 0x2d; /* No restart, zero-fill, host writeprot */
       (word16)tss_ptr->tss_ebx = 0;
       (word16)tss_ptr->tss_ecx = 0;
-      memput(tss_ptr->tss_es, tss_ptr->tss_edi, "\5\0CWSDPMI", 10);
+      memput(tss_ptr->tss_es, tss_ptr->tss_edi, "\7\0CWSDPMI", 10);
       EXIT_OK;
 #endif
 
@@ -1145,7 +1168,6 @@ static int i_31(void)
       tmp_buffer[4] = tmp_buffer[6] = valloc_max_size();
       tmp_buffer[2] = tmp_buffer[5] = valloc_max_size() - valloc_used();
       tmp_buffer[8] = dalloc_max_size();
-/*      tmp_buffer[1] = tmp_buffer[2] + tmp_buffer[8] - dalloc_used(); */
       tmp_buffer[1] = tmp_buffer[8] - reserved + valloc_max_size();
       tmp_buffer[0] = tmp_buffer[1] << 12;
       memput(tss_ptr->tss_es, tss_ptr->tss_edi, tmp_buffer, sizeof(tmp_buffer));
@@ -1157,26 +1179,26 @@ static int i_31(void)
       word32 rsize,newbase;
       AREAS *area = firstarea;
       AREAS **lasta = &firstarea;
-      newbase = 0x0fffffff;
+      newbase = VADDR_START - 1;
       while(area) {
         newbase = area->last_addr;
         lasta = &area->next;
         area = area->next;
       }
-      if(!(area = malloc(sizeof(AREAS))))
+      if(!(area = (AREAS *)malloc(sizeof(AREAS))))
         EXIT_ERROR;
 #ifdef OLDWAY
       newbase |= 0x0fffffff;	/* Leave room for resize */
 #endif
       rsize = (((word16)tss_ptr->tss_ecx + 0xfffL) & ~0xfffL) + (tss_ptr->tss_ebx << 16);
-      if(cant_ask_for(rsize)) {
+      area->first_addr = newbase + 1;
+      area->last_addr = area->first_addr + rsize - 1;
+      area->next = NULL;
+      if((area->last_addr < area->first_addr) || cant_ask_for(rsize)) {
         free(area);
         EXIT_ERROR;
       }
       *lasta = area;
-      area->first_addr = ++newbase;
-      area->last_addr = area->first_addr + rsize - 1;
-      area->next = NULL;
 #if run_ring == 0
       lock_memory(area->first_addr, rsize, 0);
 #endif
@@ -1294,7 +1316,7 @@ static int i_31(void)
       if (vaddr < 0x100000L)
         EXIT_OK;
 #endif
-      if (vaddr < 0x10000000L)
+      if (vaddr < VADDR_START)
         EXIT_ERROR;
       /* bugs here - our lock/unlock does not keep lock count */
       if(lock_memory(vaddr,size,(word8)tss_ptr->tss_eax))
@@ -1322,7 +1344,7 @@ static int i_31(void)
       lasta = firsta + (word16)tss_ptr->tss_edi + (tss_ptr->tss_esi << 16);
       firsta += 0xfffL;
       (word16)firsta &= ~0xfff;		/* Round up - partial pages not discared */
-      if (firsta < 0x10000000L)
+      if (firsta < VADDR_START)
         EXIT_ERROR;
       (word16)lasta &= ~0xfff;		/* Round down */
       free_memory(firsta,lasta);
@@ -1335,9 +1357,9 @@ static int i_31(void)
       size = (word16)tss_ptr->tss_edi + (tss_ptr->tss_esi << 16);
       vaddr = phys = (word16)tss_ptr->tss_ecx + (tss_ptr->tss_ebx << 16);
       if((word16)tss_ptr->tss_ebx < 0x10) EXIT_ERROR;	/* Don't map 1M area */
-      if((word8)((word16)tss_ptr->tss_ebx >> 12) == 1) {	/* Conflict with our default mapping */
-        vaddr += 0x10000000;
-        (word16)tss_ptr->tss_ebx += 0x1000;
+      if((word8)((word16)tss_ptr->tss_ebx >> 12) <= 1) {	/* Conflict with our default mapping */
+        vaddr += 0xe0000000;
+        (word16)tss_ptr->tss_ebx += 0xe000;
       }
       physical_map(phys,size,vaddr);  /* Does 1:1 mapping, we return BX:CX */
       EXIT_OK;

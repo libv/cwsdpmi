@@ -7,7 +7,7 @@
 #include <io.h>			/* For broken DOS compilers, should be unistd */
 
 static char copyright[] =
- "\r\nCWSDPMI r5 Copyright (C) 2000 CW Sandmann (sandmann@clio.rice.edu).\r\n"
+ "\r\nCWSDPMI r7 Copyright (C) 2010 CW Sandmann (cwsdpmi@earthlink.net).\r\n"
  "The stub loader is Copyright (C) 1993-1995 DJ Delorie.\r\n"
  "Permission granted to use for any purpose provided this copyright\r\n"
  "remains present and unmodified.\r\n"

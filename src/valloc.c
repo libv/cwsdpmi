@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-1999 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
+/* Copyright (C) 1995-2010 CW Sandmann (cwsdpmi@earthlink.net) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -32,13 +32,16 @@
 #define MINPAGEDIR 4		/* May round down, 1PD, 2PT */
 #define PAGE2PARA 256
 #define KB2PARA 64
+#define MAX_4KPAGE 0x1ffff	/* 64K = 256MB, must be 4MB align - 1 */
+#define MAX_VAPAGE 1047552UL	/* 4GB - 4MB */
 
 static word8 far *map;		/* Expanded/Extended paged by valloc() */
 extern word8 far *dmap;		/* Paging memory allocated here too */
+static word8 map4m[192];	/* 4Mb Pages */
 
 static va_pn mem_avail, mem_used;
 
-static unsigned pn_lo_first, pn_lo_last, pn_lo_next;
+static unsigned pn_lo_first, pn_lo_last, pn_lo_next, pn_4m_next, pn_4m_last;
 static va_pn pn_hi_first, pn_hi_last, pn_hi_next;
 static char valloc_initted = 0;
 static char use_vcpi = 0;
@@ -78,6 +81,8 @@ static unsigned mempid;
 static unsigned oldmempid;
 static unsigned extrapara;
 static word8 valid;
+static void vset4m(unsigned i, char b);
+int uextmem(unsigned *u4mstart, unsigned *u4mcount);
 
 static void set_umb(void)
 {
@@ -96,7 +101,7 @@ static void set_umb(void)
     _AX = 0x5802;
     geninterrupt(0x21);	/* Get UMB status */
     umbstat = _AX;
-    
+
     _AX = 0x5801;
     _BX = 0x0080;
     geninterrupt(0x21);	/* Set first fit high, then low */
@@ -233,10 +238,12 @@ void valloc_init(word16 ies)
     SHOW_MEM_INFO("Extended memory: %ld Kb", (((word32)pn_hi_last-pn_hi_first) * 4));
   }
   pn_hi_next = pn_hi_first;
-  if(pn_hi_last > 524279UL)
-    pn_hi_last = 524279UL;
+  pn_4m_last = (unsigned)((pn_hi_last+1) >> 10) - 1;
+  if(pn_hi_last > MAX_4KPAGE && !use_vcpi)
+    pn_hi_last = MAX_4KPAGE;
+  pn_4m_next = (unsigned)((pn_hi_last+1) >> 10);
   mem_avail = (use_vcpi)? vcpi_capacity():((long)pn_hi_last-pn_hi_first+1);
-  
+
   if(NPAGEDIR)				/* Specified */
     desired_pt = 3 + NPAGEDIR;
   else {				/* Zero means automatic */
@@ -246,6 +253,28 @@ void valloc_init(word16 ies)
     else if(desired_pt > 36)		/* Arbitrary 128Mb worth max */
       desired_pt = 36;
   }
+
+  /* 4M pages first supported in Pentium Pro, >512MB machines should support */
+  mem_avail += (word32)(pn_4m_last-pn_4m_next+1) << 10;
+
+  if(!use_vcpi) {			/* Use memory over 4GB mark to fill */
+    unsigned u4mstart, u4mcount, i;
+
+    memset(map4m,0,sizeof(map4m));
+    if(uextmem(&u4mstart, &u4mcount) ) {
+      for(i=pn_4m_last+1;i<u4mstart;i++)
+        vset4m(i, 1);			/* Flag non-memory as used in bitmap */
+      pn_4m_last = u4mstart + u4mcount - 1;
+      if (pn_4m_last > sizeof(map4m)*8-1)
+        pn_4m_last = sizeof(map4m)*8-1;		/* Bitmap limit */
+      mem_avail += (word32)(pn_4m_last-u4mstart+1) << 10;
+      if(mem_avail > MAX_VAPAGE)
+        mem_avail = MAX_VAPAGE;		/* Limit to 4GB - 4MB */
+    }
+  }
+
+  if(mem_avail + CWSpar.maxdblock > MAX_VAPAGE)
+    CWSpar.maxdblock = MAX_VAPAGE - mem_avail;
 
   extrapara = (word16)(CWSpar.maxdblock >> 7) + (word16)(pn_hi_last >> 7) + 2;
   mempid = 0;
@@ -260,7 +289,7 @@ void valloc_init(word16 ies)
     xms_free();
     _exit(1);
   }
-  
+
   map = MK_FP(valloc_lowmem_page, 0);
   memsetf(0, 0, (word16)((pn_hi_last + 7) >> 3), valloc_lowmem_page);
 
@@ -294,7 +323,7 @@ static word8 vtest(va_pn i)
   return map[o] & m;
 }
 
-static void vcpi_flush(void)		/* only called on exit */
+static void vcpi_flush(void)            /* only called on exit */
 {
   va_pn pn;
 
@@ -342,7 +371,7 @@ unsigned valloc_640(void)
     if(!failure)
       return (valloc_lowmem_page+lol-0x100)>>8;
   }
-  /* Okay, not unexpected.  Allocate a new block, we can 
+  /* Okay, not unexpected.  Allocate a new block, we can
      hopefully resize it later if needed. */
   if(!alloc_pagetables(2,2))
     return pn_lo_last--;
@@ -365,7 +394,7 @@ va_pn valloc(void)
       return pn;
     }
   } else {
-    for (pn=pn_hi_next; pn<=pn_hi_last; pn++) 
+    for (pn=pn_hi_next; pn<=pn_hi_last; pn++)
       if (!vtest(pn)) {
         pn_hi_next = pn+1;
         mem_used++;
@@ -384,6 +413,80 @@ va_pn valloc(void)
   return page_out();
 }
 
+static void vset4m(unsigned i, char b)
+{
+  unsigned o;
+  word8 m;
+  o = (unsigned)(i>>3);
+  m = 1<<((unsigned)i&7);
+  if (b)
+    map4m[o] |= m;
+  else
+    map4m[o] &= ~m;
+}
+
+static word8 vtest4m(unsigned i)
+{
+  unsigned o;
+  word8 m;
+  o = (unsigned)(i>>3);
+  m = 1<<((unsigned)i&7);
+  return map4m[o] & m;
+}
+
+word16 valloc4m(void)
+{
+  va_pn pn;
+  word16 i, j;
+  if (use_vcpi)
+    return 0;				/* Never valid */
+
+  for (i=pn_4m_next; i<=pn_4m_last; i++)
+    if (!vtest4m(i)) {
+      pn_4m_next = i+1;
+      mem_used += 1024;
+      vset4m(i, 1);
+      return i;
+    }
+
+  if(CWSpar.maxdblock > 0 && (mem_avail - mem_used) < 4096)
+    return 0;			/* If paging, save 16MB for 4K pages */
+
+  /* No reserved 4MB pages left, try to gather from 4KB page area */
+  pn = (pn_hi_next + 0x3ff) & ~0x3ff;
+  while(pn+1023 <= pn_hi_last) {
+    i = pn/8;
+    for(j=0; j<128; j++)
+      if(map[i+j])
+        break;
+    if(j == 128) {	 	/* for(j=0; j<128; j++) map[i+j] = 0xff; */
+      memsetf(FP_OFF(map)+i, 0xff, 128, FP_SEG(map));
+      mem_used += 1024;
+      return (word16)(pn >> 10);
+    }
+    pn += 1024;
+  }
+  return 0;
+}
+
+void vfree4m(word16 pn)
+{
+  va_pn vpn;
+  word16 j;
+
+  if (vtest4m(pn)) {
+    vset4m(pn, 0);
+    if(pn < pn_4m_next)
+      pn_4m_next = pn;
+    mem_used -= 1024;
+    return;
+  }
+
+  vpn = (va_pn)pn << 10;
+  for(j=0; j<1024; j++)
+    vfree(vpn++);
+}
+
 /* If we are able to find the page, return 1 */
 int vfree(va_pn pn)
 {
@@ -395,7 +498,7 @@ int vfree(va_pn pn)
       pn_hi_next = pn;
     mem_used--;
     return 1;
-  } 
+  }
   if (pn == vcpi_pt[pn_lo_next-1]) {
     pn_lo_next--;
     mem_used--;

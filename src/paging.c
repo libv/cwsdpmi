@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-1999 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
+/* Copyright (C) 1995-2010 CW Sandmann (cwsdpmi@earthlink.net) 1206 Braelinn, Sugar Land, TX 77479
 ** Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 **
 ** This file is distributed under the terms listed in the document
@@ -48,6 +48,7 @@ static word32 far *pd = 0;
 static word8 pd_seg[1024];
 word32 far *vcpi_pt = 0;
 static word8 paging_buffer[4096];
+static word8 USE_4M;
 
 word32 ptr2linear(void far *ptr)
 {
@@ -86,6 +87,7 @@ void paging_setup(void)
 {
   word32 far *pt;
   int i;
+  extern word8 features;
 
   reserved = 0;
   
@@ -112,6 +114,8 @@ void paging_setup(void)
     for (; i<1024; i++)
       pt[i] = 0;
   }
+  if (!(CWSFLAG_NO4M))
+    USE_4M = (features & 8);
 
   pd[0] = far2pte(pt, PT_P | PT_U | PT_W | PT_I);  /* map 1:1 1st Mb */
   pd_seg[0] = (word32)pt >> 24;
@@ -154,20 +158,40 @@ int page_is_valid(word32 vaddr)
 {
   AREAS *area = firstarea;
   while (area) {
-    if ((vaddr <= area->last_addr) && (vaddr >= area->first_addr))
+    if ((vaddr <= area->last_addr) && (vaddr >= area->first_addr)) {
+      word32 p4m = vaddr & 0xffc00000L;
+      if( USE_4M  &&  p4m  >= area->first_addr &&
+         (0x3fffffL + p4m) <= area->last_addr )
+        return 2;
       return 1;
+    }
     area = area->next;
   }
   return 0;
 }
 
+extern word16 valloc4m(void);
+extern void vfree4m(word16 pn);
+
 static word32 far *getpte(word32 vaddr)
 {
   word32 far *pt;
-  int pdi, pti, pn;
+  word16 pdi, pti, pn;
+  static word32 boguspte;
 
-  pdi = (word16)(vaddr >> 22);
+  boguspte = PT_P | PT_U | PT_W | PT_PS;
+  pdi = vaddr >> 22;
   if (!((word16)pd[pdi] & PT_P)) {  /* put in an empty page table if required */
+    if(page_is_valid(vaddr) == 2) {	/* 4M page */
+      pn = valloc4m();
+      if(pn) {
+#ifdef VERBOSE
+        errmsg(" new_4m_pd"); 
+#endif
+        pd[pdi] = ((word32)pn << 22) | (((pn & 0x3c00) << 3) | PT_P | PT_U | PT_W | PT_PS); /*PT_S PT_I*/
+        return &boguspte;
+      }
+    }
     pn = valloc_640();
     pt = (word32 far *)((word32)pn << 24);
     if ((word16)pd[pdi] & PT_I) {
@@ -190,7 +214,8 @@ static word32 far *getpte(word32 vaddr)
       for (pti=0; pti<1024; pti++)
         pt[pti] = PT_U | PT_W | PT_S;
     }
-  }
+  } else if((word16)pd[pdi] & PT_PS)		/* Existing 4M page */
+    return &boguspte;
   else
     pt = (word32 far *)((word32)(pd_seg[pdi]) << 24);
   pti = (word16)(vaddr >> 12) & 0x3ff;
@@ -311,7 +336,7 @@ va_pn page_out(void) /* return >= 0 page which is paged out, 0xffff if not */
   else
     start_pti = 0;
   do {
-    if ((word16)pd[last_po_pdi] & PT_P) {
+    if (((word16)pd[last_po_pdi] & (PT_P|PT_PS)) == PT_P) {	/* PS = 4M */
       pt = (word32 far *)((word32)(pd_seg[last_po_pdi]) << 24);
       if (((word16)pt[last_po_pti] & (PT_P | PT_S)) == (PT_P | PT_S)) {
         rv = (va_pn)(pt[last_po_pti] >> 12);
@@ -363,22 +388,32 @@ void physical_map(word32 physical, word32 size, word32 vaddr)
   address2 = vaddr + size - 1;
   (word16)vaddr &= 0xf000;		/* page align */
   (word16)physical &= 0xf000;		/* page align */
-  free_memory(vaddr,address2);		/* Should make all pages not present */
   /* Minor bug - if using 640K page before overwritting, loose forever here */
   while(vaddr <= address2) {
     if(vaddr < 0x100000UL)
       return;				/* Wrap protection */
-    pte = getpte(vaddr);
-    pdi = (vaddr >> 22);
+    pdi = (word16)(vaddr >> 22);
+    if((vaddr & 0x3fffffL) || (physical & 0x3fffffL) || (vaddr+0x3fffffL > address2) ||
+       ((word16)pd[pdi] & (PT_P|PT_PS) == PT_P) || !USE_4M ) {
+      free_memory(vaddr,vaddr);         /* Free up if used */
+      pte = getpte(vaddr);
 #ifndef PFM686
-    (word16)pd[pdi] &= ~PT_S;		/* Make sure directory no swap */
-    *pte = PT_P | PT_U | PT_W | PT_CD | physical;
+      (word16)pd[pdi] &= ~PT_S;         /* Make sure directory no swap */
+      *pte = PT_P | PT_U | PT_W | PT_CD | physical;
 #else
-    /* koji - page directories and do NOT disable cache - direct map memory */
-    *pte = PT_P | PT_U | PT_W | physical;
+      /* koji - page directories and do NOT disable cache - direct map memory */
+      *pte = PT_P | PT_U | PT_W | physical;
 #endif
-    vaddr += 4096L;
-    physical += 4096L;
+      vaddr += 4096L;
+      physical += 4096L;
+    } else {                            /* 4M aligned, not present */
+#ifdef VERBOSE
+      errmsg( "4M Map: 0x%lx to 0x%lx\n",physical,vaddr); 
+#endif
+      pd[pdi] = physical | PT_P | PT_U | PT_W | PT_CD | PT_PS;
+      vaddr += 0x400000L;
+      physical += 0x400000L;
+    }
   }
 }
 
@@ -428,22 +463,31 @@ int lock_memory(word32 vaddr, word32 size, word8 unlock)
 void free_memory(word32 vfirst, word32 vaddr)
 {
   word32 far *pte;
+  word16 pdi;
 
   (word16)vaddr &= 0xf000;		/* page align */
   while(vfirst <= vaddr) {
-    pte = getpte(vaddr);
-    if ((word16)*pte & PT_P) {
-      if (!((word16)*pte & PT_I) || vfree((va_pn)(*pte>>12)))
-	*pte = PT_U | PT_W | PT_S;		/* Back in pool */
-      else 
-        (word16)*pte &= ~(PT_C | PT_D);	/* So it will be flushed */
-    } else if (!((word16)*pte & PT_S)) {	/* Uncommitted */
-      *pte = PT_U | PT_W | PT_S;		/* Back in pool */
-    } else if ((word16)*pte & PT_I) {
-      dfree((da_pn)(*pte >> 12));		/* Free swap space usage */
-      *pte = PT_U | PT_W | PT_S;
+    pdi = (word16)(vaddr >> 22);
+    if(((vaddr & 0x3fffffL) == 0x3ff000L) && ((vaddr & 0xffc00000L) >= vfirst) &&
+       (((word16)pd[pdi] & (PT_P|PT_PS)) == (PT_P|PT_PS)) ) {
+      vfree4m((word16)(pd[pdi] >> 22) | (((word16)pd[pdi] & 0xe000) >> 3) );
+      pd[pdi] = 0;
+      vaddr -= 0x400000L;
+    } else {
+      pte = getpte(vaddr);
+      if ((word16)*pte & PT_P) {
+        if (!((word16)*pte & PT_I) || vfree((va_pn)(*pte>>12)))
+	  *pte = PT_U | PT_W | PT_S;		/* Back in pool */
+        else 
+          (word16)*pte &= ~(PT_C | PT_D);	/* So it will be flushed */
+      } else if (!((word16)*pte & PT_S)) {	/* Uncommitted */
+        *pte = PT_U | PT_W | PT_S;		/* Back in pool */
+      } else if ((word16)*pte & PT_I) {
+        dfree((da_pn)(*pte >> 12));		/* Free swap space usage */
+        *pte = PT_U | PT_W | PT_S;
+      }
+      vaddr -= 4096L;
     }
-    vaddr -= 4096L;
   }
 }
 

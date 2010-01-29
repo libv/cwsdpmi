@@ -1,4 +1,4 @@
-; Copyright (C) 1995-1999 CW Sandmann (sandmann@clio.rice.edu) 1206 Braelinn, Sugar Land, TX 77479
+; Copyright (C) 1995-2009 CW Sandmann (cwsdpmi@earthlink.net) 1206 Braelinn, Sugar Land, TX 77479
 ; Copyright (C) 1993 DJ Delorie, 24 Kirsten Ave, Rochester NH 03867-2954
 ;
 ; This file is distributed under the terms listed in the document
@@ -148,7 +148,7 @@ go_protect_far_jump:
 	mov	fs,ax
 	mov	gs,ax
 	mov	ss,ax
-	mov	sp,word ptr cs:real_stack	;Need VCPI Inialize
+	movzx	esp,word ptr cs:real_stack	;Need VCPI Inialize
 	xor	eax,eax
 	mov	cr2,eax		 ;zero so we can tell INT 0E from page fault
 
@@ -165,13 +165,22 @@ go_protect_far_jump:
 	mov	eax,_dr7
 	mov	dr7,eax
 
-	test	byte ptr _features,10h		;Page Size Extensions?
-	jz	short nopse
-	db	0fh,20h,0e0h			;mov eax,cr4
-	or	al,10h				;Enable 4Mb pages
-	db	0fh,22h,0e0h			;mov cr4,eax
-nopse:
+	test	_features,01000008h		;Any CR4 bits? (PSE, OSFXSR) 
+	jz	short nocr4
 
+	db	0fh,20h,0e0h			;mov eax,cr4
+
+	test	byte ptr _features,8		;Page Size Extensions?
+	jz	short nopse
+	or	al,10h				;Enable 4Mb pages
+nopse:
+	test	byte ptr _features+3,1
+	jz	short no_osfxsr
+	or	ah,2				;Enable OSFXSR (and SSE)
+no_osfxsr:
+	db	0fh,22h,0e0h			;mov cr4,eax
+
+nocr4:
 	cmp	_vcpi_installed,0
 	jne	short no_tss_load		;Now Paging Mode in VCPI
 	mov	bx,_tss_ptr
@@ -188,6 +197,7 @@ nopse:
 set_paging_far_jump:
 	mov	ax,g_ctss
 	ltr	ax
+	jmp	short no_tss_load		; Chip errata fix from Symantec
 no_tss_load:
 	jmpt	g_atss				; load state from VCPU
 
@@ -220,7 +230,7 @@ _go_real_mode	proc	near
 	push	eax			;CS
 	mov	ax,offset back_to_v86	;high word still zero
 	push	eax			;EIP
-	movzx	esp,sp
+;	movzx	esp,sp
 
 	mov	ax,g_core
 	mov	ds,ax
@@ -498,7 +508,7 @@ _cputype:
 	mov	al,ah
 	mov	_features,edx
 cpu_pentium:
-	and	ax,0fh
+	and	ax,7		; was 0fh (cpu=15 if extended, make 7)
 	ret	
 cpu486:
 	inc	cx
